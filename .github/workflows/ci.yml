@@ -29,7 +29,7 @@ jobs:
           audit_status=$?
           set -e
           cat "$RUNNER_TEMP/npq-audit.json"
-          node scripts/check-npq-audit.mjs "$RUNNER_TEMP/npq-audit.json" "$audit_status"
+          node scripts/check-npq-audit.ts "$RUNNER_TEMP/npq-audit.json" "$audit_status"
           npm install --package-lock-only --ignore-scripts
           git diff --exit-code -- package.json package-lock.json
       - run: npm ci --ignore-scripts

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Activity, launchRun } from '../src/activity.ts';
-import { LaunchUncertain } from '../src/api.ts';
+import { LaunchUncertain, type Start } from '../src/api.ts';
 function storage() {
-	const values = new Map();
+	const values = new Map<string, string>();
 	return {
-		get: async (key) => values.get(key),
-		set: async (key, value) => {
+		get: async (key: string) => values.get(key),
+		set: async (key: string, value: string) => {
 			values.set(key, value);
 		},
 	};
@@ -24,7 +24,7 @@ test('remembers a lost launch before dispatch and prevents a second launch for t
 	const activity = new Activity(storage(), 'first');
 	let calls = 0;
 	const client = {
-		start: async (request) => {
+		start: async (request: Start) => {
 			calls++;
 			assert.equal((await activity.read()).runs[0].runId, request.runId);
 			throw new LaunchUncertain(request.runId);

@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import type { AuditReport } from '../scripts/check-npq-audit.ts';
 
-const checker = fileURLToPath(new URL('../scripts/check-npq-audit.mjs', import.meta.url));
+const checker = fileURLToPath(new URL('../scripts/check-npq-audit.ts', import.meta.url));
 
-function audit() {
+function audit(): AuditReport {
 	return {
 		schemaVersion: 1,
 		tool: { name: 'npq', version: '3.27.0' },
@@ -22,7 +23,7 @@ function audit() {
 	};
 }
 
-function check(report, exitCode = 0) {
+function check(report: AuditReport, exitCode = 0) {
 	const directory = mkdtempSync(join(tmpdir(), 'raycast-npq-'));
 	try {
 		writeFileSync(
@@ -79,7 +80,7 @@ for (const [name, edit] of [
 		(report) =>
 			report.packages[0].findings.push({ severity: 'notice', message: 'Unknown finding' }),
 	],
-]) {
+] satisfies Array<[string, (report: AuditReport) => unknown]>) {
 	test(`rejects ${name}`, () => {
 		const report = audit();
 		edit(report);

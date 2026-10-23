@@ -1,14 +1,20 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import { WheneverClient, LaunchUncertain, parseInput, outputText, resultUrl } from '../src/api.ts';
 
-async function service(t, respond) {
-	const requests = [];
+type RpcRequest = {
+	id: number;
+	params: { name: string; arguments: Record<string, unknown> };
+};
+type Answer = { status?: number; raw?: unknown; result?: unknown };
+
+async function service(t: TestContext, respond: (request: RpcRequest, count: number) => Answer) {
+	const requests: Array<{ body: RpcRequest; authorization?: string }> = [];
 	const server = createServer(async (req, res) => {
 		let data = '';
 		for await (const chunk of req) data += chunk;
-		const body = JSON.parse(data);
+		const body: RpcRequest = JSON.parse(data);
 		requests.push({ body, authorization: req.headers.authorization });
 		const acceptsMcp =
 			req.headers.accept?.includes('application/json') &&
@@ -25,9 +31,16 @@ async function service(t, respond) {
 			),
 		);
 	});
-	await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-	t.after(() => new Promise((resolve) => server.close(resolve)));
-	const endpoint = `http://127.0.0.1:${server.address().port}`;
+	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+	t.after(
+		() =>
+			new Promise<void>((resolve, reject) =>
+				server.close((error) => (error ? reject(error) : resolve())),
+			),
+	);
+	const address = server.address();
+	assert.ok(address && typeof address === 'object');
+	const endpoint = `http://127.0.0.1:${address.port}`;
 	const client = new WheneverClient(
 		async () => 'account-token',
 		(url, options) => {

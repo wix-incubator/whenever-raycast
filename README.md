@@ -73,6 +73,8 @@ Other npq checks remain enabled.
 Linting includes Raycast's manifest, Store author, and icon validation.
 Dependencies have a fourteen-day minimum release age.
 Tests exercise HTTP tool requests and response validation, launch uncertainty, token lifecycle, local activity, and the dependency-audit gate.
+Source, tests, scripts, and configuration use TypeScript and are checked by `npm run typecheck`.
+Node runs the TypeScript tests directly. ESLint rejects JavaScript files in repository code.
 Network fixtures do not prove a real workflow executed or produced external effects.
 
 ## Store submission

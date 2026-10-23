@@ -1,9 +1,23 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+export type AuditReport = {
+	schemaVersion: number;
+	tool: { name: string; version: string };
+	status: string;
+	summary: { packagesAudited: number; errors: number; warnings: number };
+	packages: Array<{ requested: string; findings: Array<{ severity: string; message: string }> }>;
+	failures: unknown[];
+};
+
+type Manifest = {
+	dependencies?: Record<string, string>;
+	devDependencies?: Record<string, string>;
+};
+
 try {
-	const report = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-	const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+	const report: AuditReport = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+	const manifest: Manifest = JSON.parse(readFileSync('package.json', 'utf8'));
 	const exitCode = Number(process.argv[3]);
 	assert.equal(report.schemaVersion, 1, 'Unexpected npq report schema');
 	assert.deepEqual(report.tool, { name: 'npq', version: '3.27.0' }, 'Unexpected audit tool');
@@ -44,6 +58,6 @@ try {
 
 	assert.deepEqual(errors, [], 'Blocking dependency audit errors');
 } catch (error) {
-	console.error(error.message);
+	console.error(error instanceof Error ? error.message : String(error));
 	process.exitCode = 1;
 }

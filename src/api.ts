@@ -3,10 +3,24 @@ import { MCP_URL } from './urls.ts';
 
 const RUN_STATUSES = ['running', 'succeeded', 'failed', 'timed_out', 'cancelled'] as const;
 const LAUNCHED_STATES = ['claimed', 'launched', 'not_started'] as const;
+const ACTIVATIONS = ['active', 'activating', 'degraded', 'paused', 'setup-required'] as const;
+const PLAN_PAUSES = ['pause-pending', 'paused'] as const;
+const PLAN_PAUSE_CAUSES = [
+	'active-workflow-limit',
+	'schedule-limit',
+	'connection-limit',
+	'check-failed',
+] as const;
+const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export type Workflow = {
 	id: string;
 	name: string;
 	deployedVersion: number | undefined;
+	activation: (typeof ACTIVATIONS)[number] | undefined;
+	planPaused: boolean;
+	planPauseCauses: (typeof PLAN_PAUSE_CAUSES)[number][];
+	pinned: boolean;
+	lastActivityAt: string | undefined;
 	updatedAt?: string;
 };
 export type Profile = { name: string; email?: string };
@@ -14,6 +28,8 @@ export type Run = {
 	runId: string;
 	workflowId: string;
 	version: string | undefined;
+	triggerType?: string;
+	triggerKey?: string;
 	status: (typeof RUN_STATUSES)[number];
 	startedAt: number;
 	endedAt?: number;
@@ -23,8 +39,14 @@ export type RunEvent = {
 	runId: string;
 	seq: number;
 	type: string;
+	ts?: number;
 	name?: string;
 	message?: string;
+	stepIndex?: number;
+	durationMs?: number;
+	level?: (typeof LOG_LEVELS)[number];
+	triggerType?: string;
+	triggerKey?: string;
 };
 export type Output =
 	| { kind: 'not-observed' | 'none' }
@@ -84,6 +106,13 @@ function oneOf<const T extends string>(value: unknown, options: readonly T[]): T
 	if (match === undefined) invalid();
 	return match;
 }
+function recognized<const T extends string>(value: unknown, options: readonly T[]) {
+	return options.find((option) => option === value);
+}
+function duration(value: unknown): number {
+	if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) invalid();
+	return value;
+}
 function array(value: unknown): unknown[] {
 	if (!Array.isArray(value)) invalid();
 	return value;
@@ -98,11 +127,22 @@ function completeness(value: unknown) {
 }
 function workflow(value: unknown): Workflow {
 	const item = data(value);
+	const causes = item.planEnforcementCauses;
 	return {
 		id: text(item.id),
 		name: text(item.name),
 		deployedVersion:
 			item.deployedVersion === undefined ? undefined : published(integer(item.deployedVersion)),
+		activation: recognized(item.activation, ACTIVATIONS),
+		planPaused: recognized(item.planEnforcement, PLAN_PAUSES) !== undefined,
+		planPauseCauses: Array.isArray(causes)
+			? PLAN_PAUSE_CAUSES.filter((cause) => causes.includes(cause))
+			: [],
+		pinned: item.pinned === true,
+		lastActivityAt:
+			typeof item.lastActivityAt === 'string' && item.lastActivityAt
+				? item.lastActivityAt
+				: undefined,
 		...(item.updatedAt === undefined ? {} : { updatedAt: text(item.updatedAt) }),
 	};
 }
@@ -112,6 +152,8 @@ function run(value: unknown): Run {
 		runId: text(item.runId),
 		workflowId: text(item.workflowId),
 		version: item.version === '' ? undefined : text(item.version),
+		...(item.triggerType === undefined ? {} : { triggerType: text(item.triggerType) }),
+		...(item.triggerKey === undefined ? {} : { triggerKey: text(item.triggerKey) }),
 		status: oneOf(item.status, RUN_STATUSES),
 		startedAt: integer(item.startedAt),
 		...(item.endedAt === undefined ? {} : { endedAt: integer(item.endedAt) }),
@@ -119,10 +161,17 @@ function run(value: unknown): Run {
 	};
 }
 function runEvent(item: Record<string, unknown>, runId: string): RunEvent {
+	const triggerKey = item.trigger === undefined ? undefined : data(item.trigger).key;
 	return {
 		runId,
 		seq: integer(item.seq),
 		type: text(item.type),
+		...(item.ts === undefined ? {} : { ts: integer(item.ts) }),
+		...(item.stepIndex === undefined ? {} : { stepIndex: integer(item.stepIndex) }),
+		...(item.durationMs === undefined ? {} : { durationMs: duration(item.durationMs) }),
+		...(item.level === undefined ? {} : { level: oneOf(item.level, LOG_LEVELS) }),
+		...(item.triggerType === undefined ? {} : { triggerType: text(item.triggerType) }),
+		...(triggerKey === undefined ? {} : { triggerKey: text(triggerKey) }),
 		...(item.name === undefined ? {} : { name: text(item.name) }),
 		...(item.failure !== undefined
 			? { message: text(data(item.failure).message) }

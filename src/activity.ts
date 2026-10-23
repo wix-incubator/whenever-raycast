@@ -6,7 +6,7 @@ export type RememberedRun = {
 	version: number;
 	pending: boolean;
 };
-export type ActivityData = { favorites: string[]; workflows: string[]; runs: RememberedRun[] };
+export type ActivityData = { runs: RememberedRun[] };
 type Storage = {
 	get(key: string): Promise<string | undefined>;
 	set(key: string, value: string): Promise<void>;
@@ -22,7 +22,9 @@ export class Activity {
 	}
 	async read(): Promise<ActivityData> {
 		const raw = await this.storage.get(this.key);
-		return raw === undefined ? { favorites: [], workflows: [], runs: [] } : JSON.parse(raw);
+		if (raw === undefined) return { runs: [] };
+		const { runs = [] }: Partial<ActivityData> = JSON.parse(raw);
+		return { runs };
 	}
 	private update(change: (state: ActivityData) => ActivityData) {
 		return this.writes(async () => {
@@ -34,23 +36,8 @@ export class Activity {
 	clear() {
 		return this.writes(() => this.storage.remove(this.key));
 	}
-	async toggleFavorite(id: string) {
-		return this.update((state) => ({
-			...state,
-			favorites: state.favorites.includes(id)
-				? state.favorites.filter((item) => item !== id)
-				: [...state.favorites, id],
-		}));
-	}
-	async visit(id: string) {
-		return this.update((state) => ({
-			...state,
-			workflows: [id, ...state.workflows.filter((item) => item !== id)].slice(0, 20),
-		}));
-	}
 	async rememberRun(run: RememberedRun) {
 		return this.update((state) => ({
-			...state,
 			runs: [run, ...state.runs.filter((item) => item.runId !== run.runId)].filter(
 				(entry, index) => entry.pending || index < 50,
 			),
@@ -58,7 +45,6 @@ export class Activity {
 	}
 	async observed(runId: string) {
 		return this.update((state) => ({
-			...state,
 			runs: state.runs.map((run) => (run.runId === runId ? { ...run, pending: false } : run)),
 		}));
 	}

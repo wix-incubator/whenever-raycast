@@ -14,24 +14,28 @@ function storage() {
 		},
 	};
 }
-test('favorites persist within the connected session and do not cross sessions', async () => {
+const run = (runId: string) => ({ runId, workflowId: 'workflow-1', version: 3, pending: true });
+test('run records stay within the connected session', async () => {
 	const db = storage();
-	const first = new Activity(db, 'first');
-	await first.toggleFavorite('workflow-1');
-	assert.deepEqual((await new Activity(db, 'first').read()).favorites, ['workflow-1']);
-	assert.deepEqual((await new Activity(db, 'second').read()).favorites, []);
-	await first.toggleFavorite('workflow-1');
-	assert.deepEqual((await first.read()).favorites, []);
+	await new Activity(db, 'first').rememberRun(run('run-1'));
+	assert.deepEqual(
+		(await new Activity(db, 'first').read()).runs.map((item) => item.runId),
+		['run-1'],
+	);
+	assert.deepEqual((await new Activity(db, 'second').read()).runs, []);
 });
 test('clearing a connection removes only its own local activity', async () => {
 	const db = storage();
 	const first = new Activity(db, 'first');
 	const second = new Activity(db, 'second');
-	await first.toggleFavorite('workflow-1');
-	await second.toggleFavorite('workflow-2');
+	await first.rememberRun(run('run-1'));
+	await second.rememberRun(run('run-2'));
 	await first.clear();
-	assert.deepEqual((await first.read()).favorites, []);
-	assert.deepEqual((await second.read()).favorites, ['workflow-2']);
+	assert.deepEqual((await first.read()).runs, []);
+	assert.deepEqual(
+		(await second.read()).runs.map((item) => item.runId),
+		['run-2'],
+	);
 });
 test('remembers a lost launch before dispatch and prevents a second launch for that workflow', async () => {
 	const activity = new Activity(storage(), 'first');
@@ -71,13 +75,11 @@ test('releases an inspected launch for a deliberate new run', async () => {
 	assert.equal((await activity.read()).runs[0].pending, false);
 });
 
-test('preserves a pending run while recording overlapping navigation', async () => {
+test('overlapping updates keep every remembered run', async () => {
 	const activity = new Activity(storage(), 'first');
-	await Promise.all([
-		activity.rememberRun({ runId: 'pending', workflowId: 'workflow-1', version: 3, pending: true }),
-		activity.visit('workflow-2'),
+	await Promise.all([activity.rememberRun(run('run-1')), activity.rememberRun(run('run-2'))]);
+	assert.deepEqual((await activity.read()).runs.map((item) => item.runId).sort(), [
+		'run-1',
+		'run-2',
 	]);
-	const saved = await activity.read();
-	assert.equal(saved.runs[0]?.runId, 'pending');
-	assert.deepEqual(saved.workflows, ['workflow-2']);
 });

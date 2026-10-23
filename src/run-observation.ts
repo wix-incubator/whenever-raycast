@@ -1,5 +1,15 @@
-import { outputText, type Output, type Run, type RunEvent, type RunPage } from './api.ts';
-import { code, errorMessage, humanize, md } from './format.ts';
+import type { Output, Run, RunEvent, RunPage } from './api.ts';
+import { humanize } from './format.ts';
+import {
+	NEVER_STARTED,
+	formatClock,
+	formatDuration,
+	runPresentation,
+	runStatusPresentation,
+	startedTriggerLabel,
+	type Presentation,
+	type Tone,
+} from './presentation.ts';
 
 const EVENT_LIMIT = 500;
 export type Observation = {
@@ -31,45 +41,138 @@ export function observe(state: Observation, page: RunPage): Observation {
 		reading: false,
 	};
 }
-function status({ run, complete }: Observation, uncertain: boolean) {
-	if (!run) return uncertain ? 'Launch uncertain' : 'Awaiting run evidence';
-	if (run.status === 'succeeded' && !complete) return 'Success reported · observation incomplete';
-	return humanize(run.status);
+
+export function runStatus({ run, complete }: Observation, uncertain: boolean): Presentation {
+	if (!run)
+		return uncertain
+			? { label: 'Launch uncertain', tone: 'warning' }
+			: { label: 'Awaiting run evidence', tone: 'neutral' };
+	if (run.status === 'succeeded' && !complete)
+		return { label: 'Success reported · observation incomplete', tone: 'warning' };
+	return runPresentation(run);
 }
-function outputNotice(output: Output) {
+
+export type TimelineItem = { key: string; title: string; description: string; tone: Tone };
+const LIFECYCLE: Partial<Record<string, Run['status']>> = {
+	run_started: 'running',
+	run_succeeded: 'succeeded',
+	run_failed: 'failed',
+	run_timed_out: 'timed_out',
+	run_cancelled: 'cancelled',
+};
+const STEP_TONE = { running: 'warning', completed: 'success', failed: 'error' } as const;
+const STEP_RESULT: Partial<Record<string, keyof typeof STEP_TONE>> = {
+	step_completed: 'completed',
+	step_failed: 'failed',
+	step_retried: 'running',
+};
+type Step = {
+	seq: number;
+	name: string;
+	status: keyof typeof STEP_TONE;
+	ts?: number;
+	durationMs?: number;
+	failure?: string;
+};
+const clock = (ts: number | undefined) => (ts === undefined ? [] : [formatClock(ts)]);
+const stepRow = (step: Step): TimelineItem => ({
+	key: `step-${step.seq}`,
+	title: step.name,
+	description: [
+		step.failure === undefined ? step.status : step.status === 'running' ? 'Retrying' : 'Failed',
+		...(step.durationMs === undefined ? [] : [formatDuration(step.durationMs)]),
+		...clock(step.ts),
+		...(step.failure === undefined ? [] : [step.failure]),
+	].join(' · '),
+	tone: STEP_TONE[step.status],
+});
+
+// Mirrors the web app's run timeline: one row per step, plus logs and run lifecycle events.
+export function timeline(events: RunEvent[]): TimelineItem[] {
+	// Steps are rendered last because later events finish them.
+	const rows: Array<() => TimelineItem> = [];
+	const steps = new Map<number, Step>();
+	let startedAt: number | undefined;
+	for (const event of events) {
+		const step = event.stepIndex === undefined ? undefined : steps.get(event.stepIndex);
+		const result = STEP_RESULT[event.type];
+		if (result !== undefined) {
+			if (!step) continue;
+			step.status = result;
+			if (event.durationMs !== undefined) step.durationMs = event.durationMs;
+			if (event.message !== undefined) step.failure = event.message;
+			continue;
+		}
+		switch (event.type) {
+			case 'step_started': {
+				const started: Step = {
+					seq: event.seq,
+					name: event.name ?? 'Step',
+					status: 'running',
+					...(event.ts === undefined ? {} : { ts: event.ts }),
+				};
+				if (event.stepIndex !== undefined) steps.set(event.stepIndex, started);
+				rows.push(() => stepRow(started));
+				break;
+			}
+			case 'log': {
+				const row: TimelineItem = {
+					key: `log-${event.seq}`,
+					title: event.message ?? 'Log',
+					description: ['log', ...(event.level ? [event.level] : []), ...clock(event.ts)].join(
+						' · ',
+					),
+					tone: 'neutral',
+				};
+				rows.push(() => row);
+				break;
+			}
+			default: {
+				const status = LIFECYCLE[event.type];
+				if (status === undefined) break;
+				if (status === 'running') startedAt = event.ts;
+				const presentation =
+					status === 'running'
+						? { label: 'Started', tone: 'neutral' as const }
+						: status === 'failed' && event.seq === 0
+							? NEVER_STARTED
+							: runStatusPresentation(status);
+				const elapsed =
+					status !== 'running' &&
+					startedAt !== undefined &&
+					event.ts !== undefined &&
+					event.ts >= startedAt
+						? [`${formatDuration(event.ts - startedAt)} total`]
+						: [];
+				const row: TimelineItem = {
+					key: `life-${event.seq}`,
+					title: presentation.label,
+					description: [
+						...(status === 'running' && event.triggerType !== undefined
+							? [startedTriggerLabel(event.triggerType, event.triggerKey)]
+							: []),
+						...clock(event.ts),
+						...elapsed,
+						...(event.message === undefined ? [] : [event.message]),
+					].join(' · '),
+					tone: presentation.tone,
+				};
+				rows.push(() => row);
+			}
+		}
+	}
+	return rows.map((row) => row());
+}
+
+export function outputNotice(output: Output): string {
 	switch (output.kind) {
 		case 'omitted':
-			return `Output omitted: ${humanize(output.reason)}.`;
+			return `Output omitted: ${humanize(output.reason)}`;
 		case 'none':
-			return 'The run returned no output.';
+			return 'The run returned no output';
 		case 'not-observed':
-			return 'Output has not been observed.';
+			return 'Output has not been observed';
 		case 'available':
-			return code(outputText(output) ?? '');
+			return 'Output available';
 	}
-}
-function eventLine(event: RunEvent) {
-	return [
-		`${event.seq}. ${md(humanize(event.type))}`,
-		...(event.name ? [md(event.name)] : []),
-		...(event.message ? [md(event.message)] : []),
-	].join(' · ');
-}
-export function runMarkdown(state: Observation, runId: string, uncertain: boolean) {
-	const { run, error, events } = state;
-	return [
-		`# ${md(status(state, uncertain))}`,
-		`Run: ${md(runId)}`,
-		...(run ? [`Saved version: **${md(run.version ?? 'Unknown')}**`] : []),
-		...(run?.failure ? [`**Failure:** ${md(run.failure)}`] : []),
-		...(error
-			? [`**Read failed:** ${md(errorMessage(error))}`, 'Inspect this run before starting another.']
-			: []),
-		...(state.more ? ['More recorded events are available. Load the next page.'] : []),
-		'## Output',
-		outputNotice(state.output),
-		'## Recorded events',
-		...(events.length ? events.map(eventLine) : ['No events have been read yet.']),
-		`Showing up to the latest ${EVENT_LIMIT} loaded events.`,
-	].join('\n\n');
 }

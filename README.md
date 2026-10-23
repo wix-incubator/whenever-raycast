@@ -25,6 +25,7 @@ npm run build
 
 CI runs on pull requests, pushes to `master`, and manual dispatch.
 It audits dependencies with `npq@3.27.0`, verifies the lockfile, and runs these checks.
+Linting includes Raycast's manifest, Store author, and icon validation.
 Dependencies have a fourteen-day minimum release age.
 Tests cover the dependency-audit gate, not account connection or workflow execution.
 
@@ -33,7 +34,7 @@ The audit checker and its test patterns are adapted from
 
 ## Store submission
 
-Confirm that `author` in `package.json` matches the maintainer's Raycast Store handle.
+The Store author is `kasparas_baniulis`.
 Complete the extension's features and Store listing before submission.
 Run the checks above, then submit with:
 

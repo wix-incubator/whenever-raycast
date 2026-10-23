@@ -65,9 +65,56 @@ test('lists owned workflows and preserves incomplete-list evidence', async (t) =
 	const { client, requests } = await service(t, () => ({
 		result: { workflows: [workflow], completeness: 'truncated' },
 	}));
-	assert.deepEqual(await client.workflows(), { workflows: [workflow], completeness: 'truncated' });
+	assert.deepEqual(await client.workflows(), {
+		workflows: [
+			{
+				...workflow,
+				activation: undefined,
+				planPaused: false,
+				planPauseCauses: [],
+				pinned: false,
+				lastActivityAt: undefined,
+			},
+		],
+		completeness: 'truncated',
+	});
 	assert.equal(requests[0].authorization, 'Bearer account-token');
 	assert.equal(requests[0].body.params.name, 'list_workflows');
+});
+
+test('reads the activation, plan pause and pin the web app shows', async (t) => {
+	const stored = { activatedAt: '', planEnforcement: '', planEnforcementCauses: [], revision: 2 };
+	const { client } = await service(t, () => ({
+		result: {
+			workflows: [
+				{
+					...workflow,
+					...stored,
+					activation: 'active',
+					pinned: true,
+					lastActivityAt: '2026-10-23T09:36:28.287Z',
+				},
+				{ ...workflow, ...stored, id: 'workflow-2', deployedVersion: 0, activation: '' },
+				{
+					...workflow,
+					...stored,
+					id: 'workflow-3',
+					activation: 'paused',
+					planEnforcement: 'paused',
+					planEnforcementCauses: ['connection-limit', 'not-a-cause'],
+				},
+			],
+			completeness: 'complete',
+		},
+	}));
+	const [active, draft, paused] = (await client.workflows()).workflows;
+	assert.equal(active.activation, 'active');
+	assert.equal(active.pinned, true);
+	assert.equal(active.lastActivityAt, '2026-10-23T09:36:28.287Z');
+	assert.equal(draft.activation, undefined);
+	assert.equal(draft.deployedVersion, undefined);
+	assert.equal(paused.planPaused, true);
+	assert.deepEqual(paused.planPauseCauses, ['connection-limit']);
 });
 
 test('rejects malformed tool replies instead of showing an empty workflow list', async (t) => {
@@ -234,4 +281,41 @@ test('preserves copyable JSON and restricts result links to ordinary web URLs', 
 		assert.equal(resultUrl({ kind: 'available', value }), undefined);
 	}
 	assert.equal(outputText({ kind: 'omitted', reason: 'too_large' }), undefined);
+});
+
+test('reads the step, timing and trigger fields the timeline shows', async (t) => {
+	const { client } = await service(t, () => ({
+		result: {
+			run,
+			events: [
+				{
+					runId: 'run-1',
+					seq: 0,
+					ts: 100,
+					type: 'run_started',
+					triggerType: 'webhook',
+					trigger: { type: 'webhook', key: 'slack-app-mention' },
+				},
+				{
+					runId: 'run-1',
+					seq: 1,
+					ts: 200,
+					type: 'step_completed',
+					stepIndex: 0,
+					name: 'Reply',
+					durationMs: 584.5,
+				},
+				{ runId: 'run-1', seq: 2, ts: 300, type: 'log', level: 'warn', message: 'Slow reply' },
+			],
+			nextSeq: 2,
+			truncated: false,
+		},
+	}));
+	const [started, step, log] = (await client.run('run-1', 0)).events;
+	assert.equal(started.triggerType, 'webhook');
+	assert.equal(started.triggerKey, 'slack-app-mention');
+	assert.equal(step.stepIndex, 0);
+	assert.equal(step.durationMs, 584.5);
+	assert.equal(log.level, 'warn');
+	assert.equal(log.ts, 300);
 });

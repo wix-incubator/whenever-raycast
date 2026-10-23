@@ -29,9 +29,6 @@ Linting includes Raycast's manifest, Store author, and icon validation.
 Dependencies have a fourteen-day minimum release age.
 Tests cover the dependency-audit gate, not account connection or workflow execution.
 
-The audit checker and its test patterns are adapted from
-[Whenever for n8n](https://github.com/wix-incubator/n8n-nodes-whenever), under the included MIT license.
-
 ## Store submission
 
 The Store author is `kasparasb`.

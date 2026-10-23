@@ -6,6 +6,8 @@ function setup({
 	expired = false,
 	response = { access_token: 'new', refresh_token: 'rotated', expires_in: 3600 },
 	status = 200,
+	respond,
+	readTokens,
 } = {}) {
 	let stored = { accessToken: 'old', refreshToken: 'refresh', isExpired: () => expired };
 	const requests = [];
@@ -13,7 +15,7 @@ function setup({
 		{
 			getClientId: async () => 'raycast-client',
 			setClientId: async () => {},
-			getTokens: async () => stored,
+			getTokens: async () => (readTokens ? readTokens(stored) : stored),
 			setTokens: async (value) => {
 				stored = {
 					accessToken: value.access_token,
@@ -27,7 +29,7 @@ function setup({
 		},
 		async (url, options) => {
 			requests.push({ url, body: new URLSearchParams(options.body) });
-			return new Response(JSON.stringify(response), { status });
+			return respond ? respond(url, options) : new Response(JSON.stringify(response), { status });
 		},
 	);
 	return { session, requests, stored: () => stored };
@@ -123,5 +125,93 @@ test('binds PKCE exchange and refresh to the dynamically registered client', asy
 test('clears native tokens even when remote revocation fails', async () => {
 	const service = setup({ status: 503 });
 	await assert.rejects(service.session.disconnect(), /revocation/);
+	assert.equal(service.stored(), undefined);
+});
+
+function delayedRefresh() {
+	const entered = Promise.withResolvers();
+	const answer = Promise.withResolvers();
+	const service = setup({
+		expired: true,
+		respond: (url, options) => {
+			if (url.endsWith('/token') && options.body.get('grant_type') === 'refresh_token') {
+				entered.resolve();
+				return answer.promise;
+			}
+			return new Response(
+				JSON.stringify(
+					url.endsWith('/register')
+						? { client_id: 'new-client' }
+						: { access_token: 'new-connection', refresh_token: 'new-refresh', expires_in: 3600 },
+				),
+			);
+		},
+	});
+	return {
+		...service,
+		entered: entered.promise,
+		finish: () =>
+			answer.resolve(
+				new Response(
+					JSON.stringify({
+						access_token: 'stale',
+						refresh_token: 'stale-refresh',
+						expires_in: 3600,
+					}),
+				),
+			),
+	};
+}
+
+test('does not restore credentials when a refresh finishes after sign-out', async () => {
+	const service = delayedRefresh();
+	const rejected = assert.rejects(service.session.accessToken(), /Connect your Whenever account/);
+	await service.entered;
+	await service.session.disconnect();
+	service.finish();
+	await rejected;
+	assert.equal(service.stored(), undefined);
+});
+
+test('does not overwrite a new connection with an older pending refresh', async () => {
+	const service = delayedRefresh();
+	const rejected = assert.rejects(service.session.accessToken(), /Connect your Whenever account/);
+	await service.entered;
+	await service.session.register('https://raycast.com/redirect');
+	await service.session.connect({
+		code: 'new-code',
+		verifier: 'pkce',
+		redirectURI: 'https://raycast.com/redirect',
+	});
+	service.finish();
+	await rejected;
+	assert.equal(service.stored().accessToken, 'new-connection');
+});
+
+test('rejects a credential read that finishes after failed remote revocation', async () => {
+	const entered = Promise.withResolvers();
+	const answer = Promise.withResolvers();
+	let old;
+	let first = true;
+	const service = setup({
+		expired: true,
+		readTokens: (value) => {
+			if (!first) return value;
+			first = false;
+			old = value;
+			entered.resolve();
+			return answer.promise;
+		},
+		respond: (url) =>
+			new Response(
+				JSON.stringify({ access_token: 'stale', refresh_token: 'stale-refresh', expires_in: 3600 }),
+				{ status: url.endsWith('/revoke') ? 503 : 200 },
+			),
+	});
+	const rejected = assert.rejects(service.session.accessToken(), /Connect your Whenever account/);
+	await entered.promise;
+	await assert.rejects(service.session.disconnect(), /revocation/);
+	answer.resolve(old);
+	await rejected;
 	assert.equal(service.stored(), undefined);
 });

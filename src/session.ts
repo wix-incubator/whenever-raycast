@@ -14,11 +14,22 @@ export class Session {
 	private store: TokenStore;
 	private fetcher: typeof fetch;
 	private refreshing?: Promise<string>;
+	private epoch = 0;
+	private writing: Promise<void> = Promise.resolve();
 	constructor(store: TokenStore, fetcher: typeof fetch = fetch) {
 		this.store = store;
 		this.fetcher = fetcher;
 	}
+	private changeStore(epoch: number, change: () => Promise<void>): Promise<void> {
+		const next = this.writing.then(async () => {
+			if (epoch !== this.epoch) throw new SignInRequired();
+			await change();
+		});
+		this.writing = next.catch(() => undefined);
+		return next;
+	}
 	private async exchange(params: Record<string, string>): Promise<string> {
+		const epoch = this.epoch;
 		const clientId = await this.store.getClientId();
 		if (!clientId) throw new SignInRequired();
 		const response = await this.fetcher(`${MCP_URL}oauth/token`, {
@@ -29,12 +40,13 @@ export class Session {
 			body: new URLSearchParams({ ...params, client_id: clientId, resource: MCP_URL }),
 		});
 		const tokens: unknown = await response.json();
+		if (epoch !== this.epoch) throw new SignInRequired();
 		if (!response.ok) {
 			if (
 				object(tokens) &&
 				(tokens.error === 'invalid_grant' || tokens.error === 'invalid_client')
 			) {
-				await this.store.removeTokens();
+				await this.changeStore(epoch, () => this.store.removeTokens());
 				throw new SignInRequired();
 			}
 			throw new Error('Sign-in is temporarily unavailable. Try again later.');
@@ -50,15 +62,18 @@ export class Session {
 			tokens.expires_in <= 0
 		)
 			throw new Error('Whenever returned an invalid token response.');
-		await this.store.setTokens({
+		const saved = {
 			access_token: tokens.access_token,
 			refresh_token: tokens.refresh_token,
 			expires_in: tokens.expires_in,
-		});
+		};
+		await this.changeStore(epoch, () => this.store.setTokens(saved));
 		return tokens.access_token;
 	}
 	async accessToken(): Promise<string> {
+		const epoch = this.epoch;
 		const tokens = await this.store.getTokens();
+		if (epoch !== this.epoch) throw new SignInRequired();
 		if (!tokens) throw new SignInRequired();
 		if (!tokens.isExpired()) return tokens.accessToken;
 		if (!tokens.refreshToken) throw new SignInRequired();
@@ -80,7 +95,8 @@ export class Session {
 		});
 	}
 	async register(redirectURI: string): Promise<string> {
-		await this.store.removeTokens();
+		const epoch = ++this.epoch;
+		await this.changeStore(epoch, () => this.store.removeTokens());
 		const response = await this.fetcher(`${MCP_URL}oauth/register`, {
 			method: 'POST',
 			redirect: 'error',
@@ -102,12 +118,15 @@ export class Session {
 			!result.client_id
 		)
 			throw new Error('Whenever could not register this Raycast connection.');
-		await this.store.setClientId(result.client_id);
+		const clientId = result.client_id;
+		await this.changeStore(epoch, () => this.store.setClientId(clientId));
 		return result.client_id;
 	}
 	async disconnect() {
+		const epoch = ++this.epoch;
 		const clientId = await this.store.getClientId();
 		const tokens = await this.store.getTokens();
+		if (epoch !== this.epoch) throw new SignInRequired();
 		try {
 			if (tokens && clientId) {
 				const response = await this.fetcher(`${MCP_URL}oauth/revoke`, {
@@ -124,7 +143,7 @@ export class Session {
 					throw new Error('Signed out locally, but server revocation could not be confirmed.');
 			}
 		} finally {
-			await this.store.removeTokens();
+			await this.changeStore(epoch, () => this.store.removeTokens());
 		}
 	}
 }

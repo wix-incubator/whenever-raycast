@@ -34,7 +34,7 @@ The audit checker and its test patterns are adapted from
 
 ## Store submission
 
-The Store author is `kasparas_baniulis`.
+The Store author is `kasparasb`.
 Complete the extension's features and Store listing before submission.
 Run the checks above, then submit with:
 

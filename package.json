@@ -6,7 +6,7 @@
 	"title": "Whenever",
 	"description": "Open Whenever to manage your workflows.",
 	"icon": "icon.png",
-	"author": "kasparas_baniulis",
+	"author": "kasparasb",
 	"license": "MIT",
 	"platforms": [
 		"macOS"

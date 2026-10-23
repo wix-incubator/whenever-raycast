@@ -20,6 +20,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Audit dependencies with npq
+        env:
+          MARSHALL_DISABLE_PROVENANCE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set +e
           npx --yes --ignore-scripts npq@3.27.0 --json > "$RUNNER_TEMP/npq-audit.json"

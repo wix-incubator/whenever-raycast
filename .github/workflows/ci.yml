@@ -20,13 +20,16 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Audit dependencies with npq
+        env:
+          MARSHALL_DISABLE_PROVENANCE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set +e
           npx --yes --ignore-scripts npq@3.27.0 --json > "$RUNNER_TEMP/npq-audit.json"
           audit_status=$?
           set -e
           cat "$RUNNER_TEMP/npq-audit.json"
-          node scripts/check-npq-audit.mjs "$RUNNER_TEMP/npq-audit.json" "$audit_status"
+          node scripts/check-npq-audit.ts "$RUNNER_TEMP/npq-audit.json" "$audit_status"
           npm install --package-lock-only --ignore-scripts
           git diff --exit-code -- package.json package-lock.json
       - run: npm ci --ignore-scripts

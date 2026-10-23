@@ -9,6 +9,9 @@ function storage() {
 		set: async (key: string, value: string) => {
 			values.set(key, value);
 		},
+		remove: async (key: string) => {
+			values.delete(key);
+		},
 	};
 }
 test('favorites persist within the connected session and do not cross sessions', async () => {
@@ -19,6 +22,16 @@ test('favorites persist within the connected session and do not cross sessions',
 	assert.deepEqual((await new Activity(db, 'second').read()).favorites, []);
 	await first.toggleFavorite('workflow-1');
 	assert.deepEqual((await first.read()).favorites, []);
+});
+test('clearing a connection removes only its own local activity', async () => {
+	const db = storage();
+	const first = new Activity(db, 'first');
+	const second = new Activity(db, 'second');
+	await first.toggleFavorite('workflow-1');
+	await second.toggleFavorite('workflow-2');
+	await first.clear();
+	assert.deepEqual((await first.read()).favorites, []);
+	assert.deepEqual((await second.read()).favorites, ['workflow-2']);
 });
 test('remembers a lost launch before dispatch and prevents a second launch for that workflow', async () => {
 	const activity = new Activity(storage(), 'first');

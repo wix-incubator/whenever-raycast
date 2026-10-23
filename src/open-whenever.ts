@@ -1,5 +1,6 @@
 import { open } from '@raycast/api';
+import { APP_URL } from './urls.ts';
 
 export default async function Command() {
-	await open('https://app.whenever.dev');
+	await open(APP_URL);
 }

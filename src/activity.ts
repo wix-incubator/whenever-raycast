@@ -1,4 +1,5 @@
 import { LaunchUncertain, type Start, type WheneverClient } from './api.ts';
+import { serialized } from './serialized.ts';
 export type RememberedRun = {
 	runId: string;
 	workflowId: string;
@@ -9,11 +10,12 @@ export type ActivityData = { favorites: string[]; workflows: string[]; runs: Rem
 type Storage = {
 	get(key: string): Promise<string | undefined>;
 	set(key: string, value: string): Promise<void>;
+	remove(key: string): Promise<void>;
 };
 export class Activity {
 	private storage: Storage;
 	private key: string;
-	private updating: Promise<unknown> = Promise.resolve();
+	private writes = serialized();
 	constructor(storage: Storage, session: string) {
 		this.storage = storage;
 		this.key = `activity:${session}`;
@@ -23,13 +25,14 @@ export class Activity {
 		return raw === undefined ? { favorites: [], workflows: [], runs: [] } : JSON.parse(raw);
 	}
 	private update(change: (state: ActivityData) => ActivityData) {
-		const next = this.updating.then(async () => {
+		return this.writes(async () => {
 			const state = change(await this.read());
 			await this.storage.set(this.key, JSON.stringify(state));
 			return state;
 		});
-		this.updating = next.catch(() => undefined);
-		return next;
+	}
+	clear() {
+		return this.writes(() => this.storage.remove(this.key));
 	}
 	async toggleFavorite(id: string) {
 		return this.update((state) => ({

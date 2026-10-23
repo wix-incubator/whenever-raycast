@@ -1,6 +1,8 @@
-import { MCP_URL, SignInRequired, object } from './api.ts';
+import { SignInRequired } from './api.ts';
+import { isRecord, postForm, postJson } from './http.ts';
+import { serialized } from './serialized.ts';
+import { MCP_URL } from './urls.ts';
 
-export const AUTHORIZE_URL = 'https://app.whenever.dev/_api/whenever-mcp/oauth/authorize';
 type Tokens = { access_token: string; refresh_token: string; expires_in: number };
 type StoredTokens = { accessToken: string; refreshToken?: string; isExpired(): boolean };
 type TokenStore = {
@@ -15,35 +17,31 @@ export class Session {
 	private fetcher: typeof fetch;
 	private refreshing?: Promise<string>;
 	private epoch = 0;
-	private writing: Promise<void> = Promise.resolve();
+	private writes = serialized();
 	constructor(store: TokenStore, fetcher: typeof fetch = fetch) {
 		this.store = store;
 		this.fetcher = fetcher;
 	}
 	private changeStore(epoch: number, change: () => Promise<void>): Promise<void> {
-		const next = this.writing.then(async () => {
+		return this.writes(async () => {
 			if (epoch !== this.epoch) throw new SignInRequired();
 			await change();
 		});
-		this.writing = next.catch(() => undefined);
-		return next;
 	}
 	private async exchange(params: Record<string, string>): Promise<string> {
 		const epoch = this.epoch;
 		const clientId = await this.store.getClientId();
 		if (!clientId) throw new SignInRequired();
-		const response = await this.fetcher(`${MCP_URL}oauth/token`, {
-			method: 'POST',
-			redirect: 'error',
-			signal: AbortSignal.timeout(30000),
-			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-			body: new URLSearchParams({ ...params, client_id: clientId, resource: MCP_URL }),
+		const response = await postForm(this.fetcher, `${MCP_URL}oauth/token`, {
+			...params,
+			client_id: clientId,
+			resource: MCP_URL,
 		});
 		const tokens: unknown = await response.json();
 		if (epoch !== this.epoch) throw new SignInRequired();
 		if (!response.ok) {
 			if (
-				object(tokens) &&
+				isRecord(tokens) &&
 				(tokens.error === 'invalid_grant' || tokens.error === 'invalid_client')
 			) {
 				await this.changeStore(epoch, () => this.store.removeTokens());
@@ -52,7 +50,7 @@ export class Session {
 			throw new Error('Sign-in is temporarily unavailable. Try again later.');
 		}
 		if (
-			!object(tokens) ||
+			!isRecord(tokens) ||
 			typeof tokens.access_token !== 'string' ||
 			!tokens.access_token ||
 			typeof tokens.refresh_token !== 'string' ||
@@ -97,30 +95,24 @@ export class Session {
 	async register(redirectURI: string): Promise<string> {
 		const epoch = ++this.epoch;
 		await this.changeStore(epoch, () => this.store.removeTokens());
-		const response = await this.fetcher(`${MCP_URL}oauth/register`, {
-			method: 'POST',
-			redirect: 'error',
-			signal: AbortSignal.timeout(30000),
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				client_name: 'Whenever for Raycast',
-				redirect_uris: [redirectURI],
-				token_endpoint_auth_method: 'none',
-				grant_types: ['authorization_code', 'refresh_token'],
-				response_types: ['code'],
-			}),
+		const response = await postJson(this.fetcher, `${MCP_URL}oauth/register`, {
+			client_name: 'Whenever for Raycast',
+			redirect_uris: [redirectURI],
+			token_endpoint_auth_method: 'none',
+			grant_types: ['authorization_code', 'refresh_token'],
+			response_types: ['code'],
 		});
 		const result: unknown = await response.json();
 		if (
 			!response.ok ||
-			!object(result) ||
+			!isRecord(result) ||
 			typeof result.client_id !== 'string' ||
 			!result.client_id
 		)
 			throw new Error('Whenever could not register this Raycast connection.');
 		const clientId = result.client_id;
 		await this.changeStore(epoch, () => this.store.setClientId(clientId));
-		return result.client_id;
+		return clientId;
 	}
 	async disconnect() {
 		const epoch = ++this.epoch;
@@ -129,16 +121,12 @@ export class Session {
 		if (epoch !== this.epoch) throw new SignInRequired();
 		try {
 			if (tokens && clientId) {
-				const response = await this.fetcher(`${MCP_URL}oauth/revoke`, {
-					method: 'POST',
-					redirect: 'error',
-					signal: AbortSignal.timeout(15000),
-					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-					body: new URLSearchParams({
-						token: tokens.refreshToken ?? tokens.accessToken,
-						client_id: clientId,
-					}),
-				});
+				const response = await postForm(
+					this.fetcher,
+					`${MCP_URL}oauth/revoke`,
+					{ token: tokens.refreshToken ?? tokens.accessToken, client_id: clientId },
+					15000,
+				);
 				if (!response.ok)
 					throw new Error('Signed out locally, but server revocation could not be confirmed.');
 			}

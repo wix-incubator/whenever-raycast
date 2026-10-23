@@ -1,4 +1,8 @@
-import { Companion } from './ui';
+import { RequireAccount } from './account-gate.tsx';
+import { Workflows } from './workflows.tsx';
+
 export default function Command() {
-	return <Companion mode="search" />;
+	return (
+		<RequireAccount>{({ key }) => <Workflows account={key} primary="details" />}</RequireAccount>
+	);
 }

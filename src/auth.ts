@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { LocalStorage, OAuth } from '@raycast/api';
-import { Session, AUTHORIZE_URL } from './session';
-import { MCP_URL, SignInRequired, WheneverClient } from './api';
+import { Activity } from './activity.ts';
+import { SignInRequired, WheneverClient } from './api.ts';
+import { Session } from './session.ts';
+import { AUTHORIZE_URL, MCP_URL } from './urls.ts';
 
 const oauth = new OAuth.PKCEClient({
 	redirectMethod: OAuth.RedirectMethod.Web,
@@ -17,6 +19,12 @@ export const session = new Session({
 	setClientId: (id) => LocalStorage.setItem('oauth-client-id', id),
 });
 export const api = new WheneverClient(() => session.accessToken());
+const activityStorage = {
+	get: (key: string) => LocalStorage.getItem<string>(key),
+	set: (key: string, value: string) => LocalStorage.setItem(key, value),
+	remove: (key: string) => LocalStorage.removeItem(key),
+};
+export const activityFor = (account: string) => new Activity(activityStorage, account);
 const SESSION_KEY = 'connected-session';
 export async function accountKey(): Promise<string> {
 	if (!(await oauth.getTokens())) throw new SignInRequired();
@@ -24,13 +32,17 @@ export async function accountKey(): Promise<string> {
 	if (!key) throw new SignInRequired();
 	return key;
 }
-export async function connect() {
-	const preliminary = await oauth.authorizationRequest({
+async function redirectURI() {
+	// Raycast builds the redirect URI only inside an authorization request, and registration needs it first.
+	const request = await oauth.authorizationRequest({
 		endpoint: AUTHORIZE_URL,
 		clientId: 'registration-preview',
 		scope: 'whenever',
 	});
-	const clientId = await session.register(preliminary.redirectURI);
+	return request.redirectURI;
+}
+export async function connect() {
+	const clientId = await session.register(await redirectURI());
 	const request = await oauth.authorizationRequest({
 		clientId,
 		endpoint: AUTHORIZE_URL,
@@ -50,7 +62,7 @@ export async function disconnect() {
 	try {
 		await session.disconnect();
 	} finally {
-		if (key) await LocalStorage.removeItem(`activity:${key}`);
+		if (key) await activityFor(key).clear();
 		await LocalStorage.removeItem(SESSION_KEY);
 	}
 }

@@ -171,7 +171,7 @@ test('preserves failure details and accepts an unknown run version', async (t) =
 		},
 	}));
 	const page = await client.run('run-1', 0);
-	assert.equal(page.run.version, '');
+	assert.equal(page.run.version, undefined);
 	assert.equal(page.run.failure, 'Connection expired');
 	assert.equal(page.events[0].message, 'Permission denied');
 });

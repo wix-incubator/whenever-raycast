@@ -1,10 +1,20 @@
-export const MCP_URL = 'https://mcp.whenever.dev/';
-export type Workflow = { id: string; name: string; deployedVersion: number; updatedAt?: string };
+import { isRecord, postJson } from './http.ts';
+import { MCP_URL } from './urls.ts';
+
+const RUN_STATUSES = ['running', 'succeeded', 'failed', 'timed_out', 'cancelled'] as const;
+const LAUNCHED_STATES = ['claimed', 'launched', 'not_started'] as const;
+export type Workflow = {
+	id: string;
+	name: string;
+	deployedVersion: number | undefined;
+	updatedAt?: string;
+};
+export type Profile = { name: string; email?: string };
 export type Run = {
 	runId: string;
 	workflowId: string;
-	version: string;
-	status: 'running' | 'succeeded' | 'failed' | 'timed_out' | 'cancelled';
+	version: string | undefined;
+	status: (typeof RUN_STATUSES)[number];
 	startedAt: number;
 	endedAt?: number;
 	failure?: string;
@@ -18,7 +28,7 @@ export type RunEvent = {
 };
 export type Output =
 	| { kind: 'not-observed' | 'none' }
-	| { kind: 'omitted'; reason: string }
+	| { kind: 'omitted'; reason: 'too_large' | 'unserializable' }
 	| { kind: 'available'; value: unknown };
 export type RunPage = {
 	run: Run;
@@ -35,7 +45,13 @@ export type Start = {
 	input: unknown;
 	triggerKey?: string;
 };
-class RequestRefused extends Error {}
+class RequestRefused extends Error {
+	payload: Record<string, unknown>;
+	constructor(message: string, payload: Record<string, unknown> = {}) {
+		super(message);
+		this.payload = payload;
+	}
+}
 export class SignInRequired extends Error {
 	constructor() {
 		super('Connect your Whenever account to continue.');
@@ -48,14 +64,11 @@ export class LaunchUncertain extends Error {
 		this.runId = runId;
 	}
 }
-export function object(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 function invalid(field = 'response'): never {
 	throw new Error(`Whenever returned invalid ${field} data. Refresh to try the read again.`);
 }
 function data(value: unknown): Record<string, unknown> {
-	if (!object(value)) invalid();
+	if (!isRecord(value)) invalid();
 	return value;
 }
 function text(value: unknown): string {
@@ -66,44 +79,66 @@ function integer(value: unknown): number {
 	if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) invalid();
 	return value;
 }
-function completeness(value: unknown): 'complete' | 'truncated' | 'not-evidenced' {
-	if (value === undefined || value === 'not-evidenced') return 'not-evidenced';
-	if (value !== 'complete' && value !== 'truncated') invalid();
-	return value;
+function oneOf<const T extends string>(value: unknown, options: readonly T[]): T {
+	const match = options.find((option) => option === value);
+	if (match === undefined) invalid();
+	return match;
 }
 function array(value: unknown): unknown[] {
 	if (!Array.isArray(value)) invalid();
 	return value;
+}
+const published = (version: number) => (version > 0 ? version : undefined);
+function completeness(value: unknown) {
+	return oneOf(value === undefined ? 'not-evidenced' : value, [
+		'complete',
+		'truncated',
+		'not-evidenced',
+	]);
 }
 function workflow(value: unknown): Workflow {
 	const item = data(value);
 	return {
 		id: text(item.id),
 		name: text(item.name),
-		deployedVersion: item.deployedVersion === undefined ? 0 : integer(item.deployedVersion),
+		deployedVersion:
+			item.deployedVersion === undefined ? undefined : published(integer(item.deployedVersion)),
 		...(item.updatedAt === undefined ? {} : { updatedAt: text(item.updatedAt) }),
 	};
 }
 function run(value: unknown): Run {
 	const item = data(value);
-	const status = item.status;
-	if (
-		status !== 'running' &&
-		status !== 'succeeded' &&
-		status !== 'failed' &&
-		status !== 'timed_out' &&
-		status !== 'cancelled'
-	)
-		invalid();
 	return {
 		runId: text(item.runId),
 		workflowId: text(item.workflowId),
-		version: item.version === '' ? '' : text(item.version),
-		status,
+		version: item.version === '' ? undefined : text(item.version),
+		status: oneOf(item.status, RUN_STATUSES),
 		startedAt: integer(item.startedAt),
 		...(item.endedAt === undefined ? {} : { endedAt: integer(item.endedAt) }),
 		...(item.failure === undefined ? {} : { failure: text(data(item.failure).message) }),
 	};
+}
+function runEvent(item: Record<string, unknown>, runId: string): RunEvent {
+	return {
+		runId,
+		seq: integer(item.seq),
+		type: text(item.type),
+		...(item.name === undefined ? {} : { name: text(item.name) }),
+		...(item.failure !== undefined
+			? { message: text(data(item.failure).message) }
+			: item.message === undefined
+				? {}
+				: { message: text(item.message) }),
+	};
+}
+function succeededOutput(item: Record<string, unknown>): Output {
+	if (item.outputOmitted !== undefined) {
+		if (item.outputJson !== undefined) invalid();
+		return { kind: 'omitted', reason: oneOf(item.outputOmitted, ['too_large', 'unserializable']) };
+	}
+	if (item.outputJson === undefined) return { kind: 'none' };
+	if (typeof item.outputJson !== 'string' || item.outputJson.length > 20000) invalid();
+	return { kind: 'available', value: JSON.parse(item.outputJson) };
 }
 export function outputText(output: Output): string | undefined {
 	if (output.kind !== 'available') return undefined;
@@ -137,30 +172,25 @@ export class WheneverClient {
 		this.token = token;
 		this.fetcher = fetcher;
 	}
-	private async call(
+	private async call(name: string, args: Record<string, unknown> = {}) {
+		return this.send(await this.token(), name, args);
+	}
+	private async send(
+		token: string,
 		name: string,
-		args: Record<string, unknown> = {},
-		authorizedToken?: string,
+		args: Record<string, unknown>,
 	): Promise<Record<string, unknown>> {
-		const token = authorizedToken ?? (await this.token());
 		const id = ++this.sequence;
-		const response = await this.fetcher(MCP_URL, {
-			method: 'POST',
-			redirect: 'error',
-			signal: AbortSignal.timeout(30000),
-			headers: {
+		const response = await postJson(
+			this.fetcher,
+			MCP_URL,
+			{ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } },
+			{
 				Authorization: `Bearer ${token}`,
-				'Content-Type': 'application/json',
 				Accept: 'application/json, text/event-stream',
 				'MCP-Protocol-Version': '2025-03-26',
 			},
-			body: JSON.stringify({
-				jsonrpc: '2.0',
-				id,
-				method: 'tools/call',
-				params: { name, arguments: args },
-			}),
-		});
+		);
 		if (response.status === 401) throw new SignInRequired();
 		if (!response.ok) {
 			const message = `Whenever request failed (HTTP ${response.status}).`;
@@ -172,15 +202,13 @@ export class WheneverClient {
 		if (reply.jsonrpc !== '2.0' || reply.id !== id || reply.error !== undefined) invalid();
 		const result = data(reply.result);
 		const payload = data(data(result.structuredContent).result);
-		if (result.isError === true) {
-			if (name === 'run_workflow_manual' && payload.status === 'launch_uncertain')
-				throw new LaunchUncertain(String(args.run_id));
+		if (result.isError === true)
 			throw new RequestRefused(
 				typeof payload.message === 'string'
 					? payload.message.slice(0, 4000)
 					: 'Whenever refused this request. Check the workflow setup in Whenever.',
+				payload,
 			);
-		}
 		return payload;
 	}
 	async workflows() {
@@ -190,13 +218,13 @@ export class WheneverClient {
 			completeness: completeness(result.completeness),
 		};
 	}
-	async profile() {
+	async profile(): Promise<Profile> {
 		const result = await this.call('get_current_user');
 		if (result.isLoggedIn === false) throw new SignInRequired();
 		return {
 			name:
 				typeof result.displayName === 'string' ? result.displayName : 'Connected Whenever account',
-			email: typeof result.email === 'string' ? result.email : undefined,
+			...(typeof result.email === 'string' ? { email: result.email } : {}),
 		};
 	}
 	async workflow(id: string) {
@@ -206,8 +234,8 @@ export class WheneverClient {
 		const source = data(result.source);
 		return {
 			workflow: item,
-			version: source.latestVersion === null ? null : integer(source.latestVersion),
-			deployedVersion: integer(source.deployedVersion),
+			version: source.latestVersion === null ? undefined : integer(source.latestVersion),
+			deployedVersion: published(integer(source.deployedVersion)),
 		};
 	}
 	async runs(workflowId: string) {
@@ -220,32 +248,25 @@ export class WheneverClient {
 		const token = await this.token();
 		// The run id is chosen before dispatch. A lost answer never authorizes a second launch.
 		try {
-			const result = await this.call(
-				'run_workflow_manual',
-				{
-					workflow_id: request.workflowId,
-					expected_version: request.version,
-					run_id: request.runId,
-					confirm_external_side_effects: true,
-					...(request.input === undefined ? {} : { input: request.input }),
-					...(request.triggerKey ? { trigger_key: request.triggerKey } : {}),
-				},
-				token,
-			);
+			const result = await this.send(token, 'run_workflow_manual', {
+				workflow_id: request.workflowId,
+				expected_version: request.version,
+				run_id: request.runId,
+				confirm_external_side_effects: true,
+				...(request.input === undefined ? {} : { input: request.input }),
+				...(request.triggerKey ? { trigger_key: request.triggerKey } : {}),
+			});
 			if (
 				result.runId !== request.runId ||
 				result.workflowId !== request.workflowId ||
-				result.version !== request.version ||
-				!['claimed', 'launched', 'launch_unknown', 'not_started'].includes(
-					String(result.launchState),
-				)
+				result.version !== request.version
 			)
 				throw new LaunchUncertain(request.runId);
-			if (result.launchState === 'launch_unknown') throw new LaunchUncertain(request.runId);
-			return { runId: request.runId, launchState: String(result.launchState) };
+			return { runId: request.runId, launchState: oneOf(result.launchState, LAUNCHED_STATES) };
 		} catch (error) {
 			if (error instanceof SignInRequired) throw error;
-			if (error instanceof RequestRefused) throw error;
+			if (error instanceof RequestRefused && error.payload.status !== 'launch_uncertain')
+				throw error;
 			throw new LaunchUncertain(request.runId);
 		}
 	}
@@ -266,37 +287,16 @@ export class WheneverClient {
 		let previous = afterSeq === 0 ? -1 : afterSeq;
 		let output: Output = { kind: 'not-observed' };
 		const events = raw.map((value) => {
-			const event = data(value);
-			const seq = integer(event.seq);
-			if (event.runId !== runId || seq <= previous || seq > nextSeq)
+			const item = data(value);
+			const event = runEvent(item, runId);
+			if (item.runId !== runId || event.seq <= previous || event.seq > nextSeq)
 				invalid('event identity or order');
-			previous = seq;
-			const type = text(event.type);
-			if (type === 'run_succeeded') {
+			previous = event.seq;
+			if (event.type === 'run_succeeded') {
 				if (output.kind !== 'not-observed') invalid();
-				if (event.outputOmitted !== undefined) {
-					if (
-						event.outputJson !== undefined ||
-						!['too_large', 'unserializable'].includes(String(event.outputOmitted))
-					)
-						invalid();
-					output = { kind: 'omitted', reason: String(event.outputOmitted) };
-				} else if (event.outputJson !== undefined) {
-					if (typeof event.outputJson !== 'string' || event.outputJson.length > 20000) invalid();
-					output = { kind: 'available', value: JSON.parse(event.outputJson) };
-				} else output = { kind: 'none' };
+				output = succeededOutput(item);
 			}
-			return {
-				runId,
-				seq,
-				type,
-				...(event.name === undefined ? {} : { name: text(event.name) }),
-				...(event.failure !== undefined
-					? { message: text(data(event.failure).message) }
-					: event.message === undefined
-						? {}
-						: { message: text(event.message) }),
-			};
+			return event;
 		});
 		return {
 			run: summary,

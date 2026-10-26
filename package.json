@@ -8,6 +8,7 @@
 	"icon": "icon.png",
 	"author": "kasparasb",
 	"owner": "whenever",
+	"access": "public",
 	"license": "MIT",
 	"platforms": [
 		"macOS"

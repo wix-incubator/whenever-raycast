@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Workflow } from '../src/api.ts';
+import { md } from '../src/format.ts';
 import {
 	appNames,
 	formatClock,
@@ -149,7 +150,7 @@ test('summarizes what a workflow runs on, the apps it uses and its last run', ()
 	assert.equal(title, '# Summarize');
 	assert.deepEqual(rest, []);
 	const lines = facts.split('\n');
-	assert.equal(lines[0], '- **Runs on** weekday-mornings \\(schedule\\) · post-now \\(manual\\)');
+	assert.equal(lines[0], '- **Runs on** weekday-mornings (schedule) · post-now (manual)');
 	assert.equal(lines[1], '- **Uses** Linear, Slack');
 	assert.match(lines[2], /^- \*\*Last run\*\* Succeeded · .+ · 4\.1s$/);
 });
@@ -166,5 +167,12 @@ test('says when the last run could not be read instead of claiming there are non
 	assert.equal(
 		workflowMarkdown(draft, { runsFailed: true }),
 		'# Summarize\n\nThis workflow is not turned on.\n\n- **Last run** Could not be read',
+	);
+});
+
+test('keeps names readable in Raycast markdown, which renders backslashed brackets as math', () => {
+	assert.equal(
+		md('Sync [beta] (v2) for $5 & #1'),
+		'Sync &#91;beta&#93; (v2) for &#36;5 &amp; \\#1',
 	);
 });

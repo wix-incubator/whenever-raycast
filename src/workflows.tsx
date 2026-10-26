@@ -4,11 +4,12 @@ import type { Activity } from './activity.ts';
 import type { Workflow } from './api.ts';
 import { activityFor, api } from './auth.ts';
 import { ErrorView } from './error-view.tsx';
-import { FilterDropdown } from './filter-dropdown.tsx';
 import { md } from './format.ts';
+import { workflowPresentation, workflowStatus } from './presentation.ts';
 import { RunDetail } from './run-detail.tsx';
 import { RunForm } from './run-form.tsx';
 import { Runs } from './runs.tsx';
+import { statusIcon, statusTag, toneColor } from './status.ts';
 import { useLoad } from './use-load.ts';
 import { APP_URL, workflowUrl } from './urls.ts';
 
@@ -25,48 +26,34 @@ const DESTINATIONS: Record<
 	details: {
 		title: 'View Workflow',
 		icon: Icon.Eye,
-		placeholder: 'Search your workflows…',
+		placeholder: 'Search workflows',
 		view: (workflow, activity) => <WorkflowDetail workflow={workflow} activity={activity} />,
 	},
 	run: {
 		title: 'Review and Run',
 		icon: Icon.Play,
-		placeholder: 'Choose a workflow to run…',
+		placeholder: 'Choose a workflow to run',
 		view: (workflow, activity) => <RunForm workflow={workflow} activity={activity} />,
 	},
 	runs: {
 		title: 'View Runs',
 		icon: Icon.Clock,
-		placeholder: 'Choose a workflow to view its runs…',
+		placeholder: 'Choose a workflow to view its runs',
 		view: (workflow, activity) => <Runs workflow={workflow} activity={activity} />,
 	},
 };
-type WorkflowFilter = {
-	value: string;
-	title: string;
-	keep: (workflow: Workflow, favorites: string[]) => boolean;
-};
-const FILTERS: WorkflowFilter[] = [
-	{ value: 'all', title: 'All Workflows', keep: () => true },
-	{
-		value: 'favorites',
-		title: 'Favorites',
-		keep: (item, favorites) => favorites.includes(item.id),
-	},
-	{
-		value: 'published',
-		title: 'Published Version',
-		keep: (item) => item.deployedVersion !== undefined,
-	},
-	{
-		value: 'unpublished',
-		title: 'No Published Version',
-		keep: (item) => item.deployedVersion === undefined,
-	},
-];
+const lastActivity = (workflow: Workflow) => workflow.lastActivityAt ?? workflow.updatedAt ?? '';
+const byMostRecentActivity = (a: Workflow, b: Workflow) =>
+	lastActivity(b).localeCompare(lastActivity(a)) || a.name.localeCompare(b.name);
+function workflowIcon(workflow: Workflow) {
+	return statusIcon(
+		workflowPresentation(workflow),
+		workflowStatus(workflow) === 'draft' ? Icon.Circle : Icon.CircleFilled,
+	);
+}
 export function Workflows({ account, primary }: { account: string; primary: Destination }) {
 	const { push } = useNavigation();
-	const [filter, setFilter] = useState(FILTERS[0]);
+	const [searchText, setSearchText] = useState('');
 	const activity = useMemo(() => activityFor(account), [account]);
 	const list = useLoad(useCallback(() => api.workflows(), []));
 	const local = useLoad(useCallback(() => activity.read(), [activity]));
@@ -76,46 +63,57 @@ export function Workflows({ account, primary }: { account: string; primary: Dest
 		local.reload();
 	};
 	if (error) return <ErrorView error={error} retry={reload} />;
-	const all = list.data?.workflows ?? [];
-	const favorites = local.data?.favorites ?? [];
-	const recent = (id: string) => {
-		const index = local.data?.workflows.indexOf(id) ?? -1;
-		return index < 0 ? 1000 : index;
-	};
-	const favorite = (item: Workflow) => favorites.includes(item.id);
-	const items = all
-		.filter((item) => filter.keep(item, favorites))
-		.sort(
-			(a, b) =>
-				Number(favorite(b)) - Number(favorite(a)) ||
-				recent(a.id) - recent(b.id) ||
-				a.name.localeCompare(b.name),
-		);
-	const open = async (item: Workflow, destination: Destination) => {
-		local.set(await activity.visit(item.id));
-		push(DESTINATIONS[destination].view(item, activity));
-	};
+	const all = [...(list.data?.workflows ?? [])].sort(byMostRecentActivity);
 	const destinations = [primary, ...(['run', 'runs'] as const).filter((item) => item !== primary)];
+	const row = (item: Workflow) => (
+		<List.Item
+			key={item.id}
+			title={item.name}
+			keywords={[item.id, workflowPresentation(item).label]}
+			icon={workflowIcon(item)}
+			accessories={[statusTag(workflowPresentation(item))]}
+			actions={
+				<ActionPanel>
+					{destinations.map((destination) => (
+						<Action
+							key={destination}
+							title={DESTINATIONS[destination].title}
+							icon={DESTINATIONS[destination].icon}
+							onAction={() => push(DESTINATIONS[destination].view(item, activity))}
+						/>
+					))}
+					<Action.OpenInBrowser title="Open Workflow in Whenever" url={workflowUrl(item.id)} />
+					<Action.CopyToClipboard title="Copy Workflow Link" content={workflowUrl(item.id)} />
+					<Action title="Refresh" icon={Icon.ArrowClockwise} onAction={reload} />
+				</ActionPanel>
+			}
+		/>
+	);
+	const pinned = all.filter((item) => item.pinned);
+	const unpinned = all.filter((item) => !item.pinned);
 	return (
 		<List
 			isLoading={list.busy || local.busy}
+			filtering
+			onSearchTextChange={setSearchText}
 			searchBarPlaceholder={DESTINATIONS[primary].placeholder}
-			searchBarAccessory={
-				<FilterDropdown
-					tooltip="Filter workflows"
-					options={FILTERS}
-					value={filter}
-					onChange={setFilter}
-				/>
-			}
 		>
 			<List.EmptyView
-				title={list.busy ? 'Loading workflows…' : 'No matching workflows'}
-				description="Create workflows in Whenever, or choose another filter."
+				icon={Icon.MagnifyingGlass}
+				title={
+					list.busy
+						? 'Loading workflows…'
+						: searchText
+							? 'No matching workflows'
+							: 'No workflows yet'
+				}
+				description={
+					searchText ? 'Try a different search term.' : 'Workflows you create will appear here.'
+				}
 				actions={
 					<ActionPanel>
-						<Action title="Refresh" onAction={reload} />
 						<Action.OpenInBrowser title="Open Whenever" url={APP_URL} />
+						<Action title="Refresh" icon={Icon.ArrowClockwise} onAction={reload} />
 					</ActionPanel>
 				}
 			/>
@@ -125,48 +123,9 @@ export function Workflows({ account, primary }: { account: string; primary: Dest
 					subtitle="Refresh or open Whenever to find other workflows"
 				/>
 			)}
-			<List.Section title="Workflows">
-				{items.map((item) => (
-					<List.Item
-						key={item.id}
-						title={item.name}
-						keywords={[item.id]}
-						icon={favorite(item) ? Icon.Star : Icon.Bolt}
-						accessories={[
-							{
-								text:
-									item.deployedVersion === undefined
-										? 'No published version'
-										: `Published v${item.deployedVersion}`,
-							},
-						]}
-						actions={
-							<ActionPanel>
-								{destinations.map((destination) => (
-									<Action
-										key={destination}
-										title={DESTINATIONS[destination].title}
-										icon={DESTINATIONS[destination].icon}
-										onAction={() => open(item, destination)}
-									/>
-								))}
-								<Action
-									title={favorite(item) ? 'Remove Favorite' : 'Add Favorite'}
-									icon={Icon.Star}
-									onAction={async () => local.set(await activity.toggleFavorite(item.id))}
-								/>
-								<Action.OpenInBrowser
-									title="Open Workflow in Whenever"
-									url={workflowUrl(item.id)}
-								/>
-								<Action.CopyToClipboard title="Copy Workflow Link" content={workflowUrl(item.id)} />
-								<Action title="Refresh" onAction={reload} />
-							</ActionPanel>
-						}
-					/>
-				))}
-			</List.Section>
-			{primary === 'runs' && filter === FILTERS[0] && (
+			{pinned.length > 0 && <List.Section title="Pinned">{pinned.map(row)}</List.Section>}
+			<List.Section title="Workflows">{unpinned.map(row)}</List.Section>
+			{primary === 'runs' && !searchText && (
 				<List.Section title="Runs Started from Raycast">
 					{local.data?.runs.map((item) => (
 						<List.Item
@@ -201,10 +160,36 @@ function WorkflowDetail({ workflow, activity }: { workflow: Workflow; activity: 
 	const { push } = useNavigation();
 	const state = useLoad(useCallback(() => api.workflow(workflow.id), [workflow.id]));
 	if (state.error) return <ErrorView error={state.error} retry={state.reload} />;
+	const status = workflowPresentation(workflow);
 	return (
 		<Detail
 			isLoading={state.busy}
-			markdown={`# ${md(workflow.name)}\n\nLatest saved version: **${state.data?.version ?? 'None'}**\n\nPublished version: **${state.data?.deployedVersion ?? 'None'}**\n\nManual execution runs the latest saved version. That version can differ from the published version.`}
+			navigationTitle={workflow.name}
+			markdown={`# ${md(workflow.name)}\n\n${md(status.description ?? status.label)}.\n\nManual execution runs the latest saved version. That version can differ from the published version.`}
+			metadata={
+				<Detail.Metadata>
+					<Detail.Metadata.TagList title="Status">
+						<Detail.Metadata.TagList.Item text={status.label} color={toneColor(status.tone)} />
+					</Detail.Metadata.TagList>
+					<Detail.Metadata.Label
+						title="Latest saved version"
+						text={state.data?.version === undefined ? 'None' : `v${state.data.version}`}
+					/>
+					<Detail.Metadata.Label
+						title="Published version"
+						text={
+							state.data?.deployedVersion === undefined ? 'None' : `v${state.data.deployedVersion}`
+						}
+					/>
+					{workflow.pinned && <Detail.Metadata.Label title="Pinned" icon={Icon.Pin} />}
+					<Detail.Metadata.Separator />
+					<Detail.Metadata.Link
+						title="Whenever"
+						target={workflowUrl(workflow.id)}
+						text="Open workflow"
+					/>
+				</Detail.Metadata>
+			}
 			actions={
 				<ActionPanel>
 					{(['run', 'runs'] as const).map((destination) => (

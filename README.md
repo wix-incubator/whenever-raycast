@@ -4,14 +4,15 @@ Search your Whenever workflows, review input, run saved versions, and inspect re
 
 ## Commands
 
-- **Search Workflows** searches workflow names and IDs. Filter favorites or published-version markers, and open saved-version details.
+- **Search Workflows** lists workflows like the Whenever sidebar: pinned first, then by most recent activity, each with its status. Search names, IDs, or statuses.
 - **Run Workflow** reviews the latest saved version and optional JSON input before requesting confirmation.
 - **Workflow Runs** opens per-workflow history and links to runs started from this Raycast connection.
 - **Whenever Account** connects through browser sign-in or signs out.
 - **Open Whenever** opens the web app.
 
-Workflow actions include favorites, recent ordering, run history, and browser links.
-Run details show status, failure messages, recorded events, and available output.
+Statuses, run labels, colors, and the run timeline follow the Whenever web app.
+Pin workflows in Whenever; Raycast shows the same pins.
+Run details show the run status, failure messages, a step timeline, and available output.
 Copy or paste output, or open an HTTP/HTTPS link returned as a string.
 
 ## Connection and execution
@@ -35,12 +36,11 @@ A launch acknowledgement does not mean the run succeeded.
 
 ## Data and limits
 
-Favorites and recent workflow/run IDs are stored locally for each connection.
+IDs of runs started from Raycast are stored locally for each connection.
 Sign-out clears those records. Input, workflow source, and results are not stored in local activity records.
-Reconnecting starts a new local favorites and recents collection.
 
-The public API supplies published-version markers, not current trigger activation status.
-Use the web app to inspect activation, configure credentials, edit, publish, or manage triggers.
+Workflow status comes from the activation Whenever last recorded, as in the web app sidebar.
+Use the web app to configure credentials, edit, publish, pin, or manage triggers.
 Workflow lists and run history can be partial. The extension labels incomplete lists.
 Run details read at most 100 events per request and display the latest 500 loaded events.
 Automatic refresh stops when observation completes, a read fails, or another event page requires loading.

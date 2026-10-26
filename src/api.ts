@@ -24,6 +24,7 @@ export type Workflow = {
 	updatedAt?: string;
 };
 export type Profile = { name: string; email?: string };
+export type Trigger = { key: string; type: string };
 export type Run = {
 	runId: string;
 	workflowId: string;
@@ -101,6 +102,10 @@ function integer(value: unknown): number {
 	if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) invalid();
 	return value;
 }
+function flag(value: unknown): boolean {
+	if (typeof value !== 'boolean') invalid();
+	return value;
+}
 function oneOf<const T extends string>(value: unknown, options: readonly T[]): T {
 	const match = options.find((option) => option === value);
 	if (match === undefined) invalid();
@@ -145,6 +150,10 @@ function workflow(value: unknown): Workflow {
 				: undefined,
 		...(item.updatedAt === undefined ? {} : { updatedAt: text(item.updatedAt) }),
 	};
+}
+function trigger(value: unknown): Trigger {
+	const item = data(value);
+	return { key: text(item.key), type: text(item.type) };
 }
 function run(value: unknown): Run {
 	const item = data(value);
@@ -285,6 +294,8 @@ export class WheneverClient {
 			workflow: item,
 			version: source.latestVersion === null ? undefined : integer(source.latestVersion),
 			deployedVersion: published(integer(source.deployedVersion)),
+			usesInput: source.usesInput === undefined ? undefined : flag(source.usesInput),
+			triggers: source.triggers === undefined ? undefined : array(source.triggers).map(trigger),
 		};
 	}
 	async runs(workflowId: string) {

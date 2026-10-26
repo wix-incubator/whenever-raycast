@@ -6,6 +6,8 @@ import {
 	formatDuration,
 	formatTimestamp,
 	runDescription,
+	runFields,
+	runTrigger,
 	workflowPresentation,
 } from '../src/presentation.ts';
 
@@ -69,4 +71,35 @@ test('formats durations and times as the web app does', () => {
 	assert.deepEqual([584, 2865, 125000].map(formatDuration), ['584ms', '2.9s', '2m 5s']);
 	assert.equal(formatTimestamp(Date.UTC(2026, 9, 23, 12, 10), 'UTC'), 'Oct 23, 12:10 UTC');
 	assert.equal(formatClock(Date.UTC(2026, 9, 23, 12, 10, 44, 48), 'UTC'), '12:10:44.048 UTC');
+});
+
+test('asks only for the run input and trigger the saved source uses', () => {
+	assert.deepEqual(runFields({ usesInput: false, triggers: [{ key: 'manual', type: 'manual' }] }), {
+		input: false,
+		trigger: 'hidden',
+	});
+	const triggers = [
+		{ key: 'manual', type: 'manual' },
+		{ key: 'push', type: 'webhook' },
+	];
+	assert.deepEqual(runFields({ usesInput: true, triggers }), { input: true, trigger: triggers });
+	assert.deepEqual(runFields({ usesInput: true, triggers: [] }), {
+		input: true,
+		trigger: 'hidden',
+	});
+});
+
+test('keeps both run fields when the server does not say what the source uses', () => {
+	assert.deepEqual(runFields({}), { input: true, trigger: 'typed' });
+});
+
+test('sends a declared trigger even after a refresh drops the one picked earlier', () => {
+	const triggers = [
+		{ key: 'manual', type: 'manual' },
+		{ key: 'github-push', type: 'webhook' },
+	];
+	assert.equal(runTrigger(triggers, 'github-push'), 'github-push');
+	assert.equal(runTrigger(triggers, 'push'), 'manual');
+	assert.equal(runTrigger('hidden', 'push'), undefined);
+	assert.equal(runTrigger('typed', '  push '), 'push');
 });

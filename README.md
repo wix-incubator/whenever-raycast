@@ -5,7 +5,7 @@ Search your Whenever workflows, review input, run saved versions, and inspect re
 ## Commands
 
 - **Search Workflows** lists workflows like the Whenever sidebar: pinned first, then by most recent activity, each with its status. Search names, IDs, or statuses.
-- **Run Workflow** reviews the latest saved version and optional JSON input before requesting confirmation.
+- **Run Workflow** reviews the latest saved version before requesting confirmation. It asks for JSON input only when the workflow reads input, and for a trigger only when it declares more than one.
 - **Workflow Runs** opens per-workflow history and links to runs started from this Raycast connection.
 - **Whenever Account** connects through browser sign-in or signs out.
 - **Open Whenever** opens the web app.
@@ -26,7 +26,7 @@ Sign-out requests server revocation and clears native tokens even if revocation 
 Clipboard and selected text are read only through explicit actions.
 These actions insert `{ "text": "…" }` into the form for review.
 Edit the JSON to match your workflow's expected input.
-For multiple triggers, enter the trigger key declared in your workflow.
+For multiple triggers, choose the trigger the run stands in for.
 
 Manual execution runs the reviewed **saved version**, which can differ from the published version.
 It requires confirmation because workflows can change external accounts.

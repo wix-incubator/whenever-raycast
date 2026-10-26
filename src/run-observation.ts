@@ -29,13 +29,27 @@ export const unobserved: Observation = {
 	more: false,
 	reading: false,
 };
+const KEPT_TYPES = new Set([
+	'step_started',
+	'step_completed',
+	'step_failed',
+	'step_retried',
+	'run_started',
+	'run_succeeded',
+	'run_failed',
+	'run_timed_out',
+	'run_cancelled',
+]);
+function capped(events: RunEvent[]) {
+	let excess = events.length - EVENT_LIMIT;
+	if (excess <= 0) return events;
+	return events.filter((event) => KEPT_TYPES.has(event.type) || excess-- <= 0);
+}
 export function observe(state: Observation, page: RunPage): Observation {
 	const last = state.events.at(-1)?.seq ?? -1;
 	return {
 		run: page.run,
-		events: [...state.events, ...page.events.filter((event) => event.seq > last)].slice(
-			-EVENT_LIMIT,
-		),
+		events: capped([...state.events, ...page.events.filter((event) => event.seq > last)]),
 		output: page.output.kind === 'not-observed' ? state.output : page.output,
 		complete: page.complete,
 		more: page.truncated,
@@ -102,9 +116,7 @@ const stepRow = (step: Step): TimelineItem => ({
 	tone: STEP_TONE[step.status],
 });
 
-// Mirrors the web app's run timeline: one row per step, plus logs and run lifecycle events.
 export function timeline(events: RunEvent[]): TimelineItem[] {
-	// Steps are rendered last because later events finish them.
 	const rows: Array<() => TimelineItem> = [];
 	const steps = new Map<number, Step>();
 	let startedAt: number | undefined;

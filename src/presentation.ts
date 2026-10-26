@@ -1,4 +1,4 @@
-import type { Run, Workflow } from './api.ts';
+import type { Run, Trigger, Workflow } from './api.ts';
 
 export type Tone = 'success' | 'warning' | 'error' | 'accent' | 'neutral';
 export type Presentation = { label: string; tone: Tone; description?: string };
@@ -128,4 +128,18 @@ export function formatClock(ms: number, timeZone?: string) {
 		timeZoneName: 'short',
 		...(timeZone === undefined ? {} : { timeZone }),
 	}).format(ms);
+}
+
+export type RunFields = { input: boolean; trigger: 'hidden' | 'typed' | Trigger[] };
+export function runFields(source: { usesInput?: boolean; triggers?: Trigger[] }): RunFields {
+	const { triggers } = source;
+	return {
+		input: source.usesInput !== false,
+		trigger: triggers === undefined ? 'typed' : triggers.length > 1 ? triggers : 'hidden',
+	};
+}
+export function runTrigger(trigger: RunFields['trigger'], picked: string): string | undefined {
+	if (trigger === 'hidden') return undefined;
+	if (trigger === 'typed') return picked.trim() || undefined;
+	return trigger.some((choice) => choice.key === picked) ? picked : trigger[0]?.key;
 }

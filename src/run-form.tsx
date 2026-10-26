@@ -17,6 +17,7 @@ import { LaunchUncertain, parseInput, type Workflow } from './api.ts';
 import { api } from './auth.ts';
 import { ErrorView } from './error-view.tsx';
 import { errorMessage } from './format.ts';
+import { runFields, runTrigger, type RunFields } from './presentation.ts';
 import { RunDetail } from './run-detail.tsx';
 import { useLoad } from './use-load.ts';
 import { workflowUrl } from './urls.ts';
@@ -29,6 +30,10 @@ export function RunForm({ workflow, activity }: { workflow: Workflow; activity: 
 	const [error, setError] = useState<string>();
 	const [busy, setBusy] = useState(false);
 	const dispatching = useRef(false);
+	const fields: RunFields = state.data
+		? runFields(state.data)
+		: { input: false, trigger: 'hidden' };
+	const chosenTrigger = runTrigger(fields.trigger, trigger);
 	const importText = async (source: 'clipboard' | 'selection') => {
 		try {
 			const value = source === 'clipboard' ? await Clipboard.readText() : await getSelectedText();
@@ -59,7 +64,7 @@ export function RunForm({ workflow, activity }: { workflow: Workflow; activity: 
 		if (dispatching.current || version === undefined) return;
 		let parsed: unknown;
 		try {
-			parsed = parseInput(input);
+			parsed = fields.input ? parseInput(input) : undefined;
 			setError(undefined);
 		} catch (error) {
 			setError(errorMessage(error));
@@ -71,7 +76,7 @@ export function RunForm({ workflow, activity }: { workflow: Workflow; activity: 
 			if (
 				!(await confirmAlert({
 					title: `Run ${workflow.name}?`,
-					message: `Run saved version ${version}${version !== state.data?.deployedVersion ? ' (different from the published version)' : ''}. This may change external accounts. Review the input before confirming.`,
+					message: `Run saved version ${version}${version !== state.data?.deployedVersion ? ' (different from the published version)' : ''}. This may change external accounts.${fields.input ? ' Review the input before confirming.' : ''}`,
 					primaryAction: { title: 'Run Saved Version' },
 				}))
 			)
@@ -81,7 +86,7 @@ export function RunForm({ workflow, activity }: { workflow: Workflow; activity: 
 				version,
 				runId: randomUUID(),
 				input: parsed,
-				...(trigger.trim() ? { triggerKey: trigger.trim() } : {}),
+				...(chosenTrigger ? { triggerKey: chosenTrigger } : {}),
 			});
 			showRun(result.runId);
 		} catch (error) {
@@ -105,16 +110,20 @@ export function RunForm({ workflow, activity }: { workflow: Workflow; activity: 
 			actions={
 				<ActionPanel>
 					<Action.SubmitForm title="Review and Run" icon={Icon.Play} onSubmit={submit} />
-					<Action
-						title="Use Clipboard as Text Input"
-						icon={Icon.Clipboard}
-						onAction={() => importText('clipboard')}
-					/>
-					<Action
-						title="Use Selected Text as Input"
-						icon={Icon.Text}
-						onAction={() => importText('selection')}
-					/>
+					{fields.input ? (
+						<>
+							<Action
+								title="Use Clipboard as Text Input"
+								icon={Icon.Clipboard}
+								onAction={() => importText('clipboard')}
+							/>
+							<Action
+								title="Use Selected Text as Input"
+								icon={Icon.Text}
+								onAction={() => importText('selection')}
+							/>
+						</>
+					) : null}
 					<Action title="Refresh Saved Version" onAction={state.reload} />
 					<Action.OpenInBrowser title="Open Workflow in Whenever" url={workflowUrl(workflow.id)} />
 				</ActionPanel>
@@ -130,27 +139,52 @@ export function RunForm({ workflow, activity }: { workflow: Workflow; activity: 
 			/>
 			<Form.Description
 				title="Execution"
-				text="This runs the saved draft and may change external accounts. Clipboard and selected text are inserted as { text: … }; adjust the JSON to match your workflow."
+				text={
+					fields.input
+						? 'This runs the saved draft and may change external accounts. Clipboard and selected text are inserted as { text: … }; adjust the JSON to match your workflow.'
+						: 'This runs the saved draft and may change external accounts.'
+				}
 			/>
-			<Form.TextArea
-				id="input"
-				title="JSON Input"
-				value={input}
-				onChange={(value) => {
-					setInput(value);
-					setError(undefined);
-				}}
-				error={error}
-				placeholder={'{ "text": "Hello" }'}
-			/>
-			<Form.TextField
-				id="trigger"
-				title="Trigger Key"
-				value={trigger}
-				onChange={setTrigger}
-				placeholder="Optional for a single trigger"
-				info="For workflows with multiple triggers, enter the declared trigger key from your workflow."
-			/>
+			{fields.input ? (
+				<Form.TextArea
+					id="input"
+					title="JSON Input"
+					value={input}
+					onChange={(value) => {
+						setInput(value);
+						setError(undefined);
+					}}
+					error={error}
+					placeholder={'{ "text": "Hello" }'}
+				/>
+			) : null}
+			{Array.isArray(fields.trigger) ? (
+				<Form.Dropdown
+					id="trigger"
+					title="Trigger"
+					value={chosenTrigger}
+					onChange={setTrigger}
+					info="The declared trigger this run stands in for."
+				>
+					{fields.trigger.map((choice) => (
+						<Form.Dropdown.Item
+							key={choice.key}
+							value={choice.key}
+							title={`${choice.key} · ${choice.type}`}
+						/>
+					))}
+				</Form.Dropdown>
+			) : null}
+			{fields.trigger === 'typed' ? (
+				<Form.TextField
+					id="trigger"
+					title="Trigger Key"
+					value={trigger}
+					onChange={setTrigger}
+					placeholder="Optional for a single trigger"
+					info="For workflows with multiple triggers, enter the declared trigger key from your workflow."
+				/>
+			) : null}
 		</Form>
 	);
 }

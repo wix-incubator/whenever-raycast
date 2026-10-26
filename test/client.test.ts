@@ -122,6 +122,32 @@ test('rejects malformed tool replies instead of showing an empty workflow list',
 	await assert.rejects(client.workflows(), /invalid/i);
 });
 
+test('reads whether the saved source uses input and which triggers it declares', async (t) => {
+	const { client } = await service(t, () => ({
+		result: {
+			workflow,
+			source: {
+				latestVersion: 3,
+				deployedVersion: 2,
+				usesInput: false,
+				triggers: [{ key: 'manual', type: 'manual' }],
+			},
+		},
+	}));
+	const details = await client.workflow('workflow-1');
+	assert.equal(details.usesInput, false);
+	assert.deepEqual(details.triggers, [{ key: 'manual', type: 'manual' }]);
+});
+
+test('leaves input and triggers unknown when the server does not report them', async (t) => {
+	const { client } = await service(t, () => ({
+		result: { workflow, source: { latestVersion: 3, deployedVersion: 2 } },
+	}));
+	const details = await client.workflow('workflow-1');
+	assert.equal(details.usesInput, undefined);
+	assert.equal(details.triggers, undefined);
+});
+
 test('pins manual execution to the reviewed saved version and sends one confirmed launch', async (t) => {
 	const id = '00000000-0000-4000-8000-000000000001';
 	const { client, requests } = await service(t, () => ({

@@ -294,6 +294,10 @@ export class WheneverClient {
 			workflow: item,
 			version: source.latestVersion === null ? undefined : integer(source.latestVersion),
 			deployedVersion: published(integer(source.deployedVersion)),
+			savedAt: typeof source.savedAt === 'string' && source.savedAt ? source.savedAt : undefined,
+			integrations: Array.isArray(source.requiredIntegrationIds)
+				? source.requiredIntegrationIds.map(text)
+				: [],
 			usesInput: source.usesInput === undefined ? undefined : flag(source.usesInput),
 			triggers: source.triggers === undefined ? undefined : array(source.triggers).map(trigger),
 		};

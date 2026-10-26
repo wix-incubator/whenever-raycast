@@ -2,13 +2,16 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Workflow } from '../src/api.ts';
 import {
+	appNames,
 	formatClock,
+	formatDate,
 	formatTime,
 	formatDuration,
 	formatTimestamp,
 	runDescription,
 	runFields,
 	runTrigger,
+	workflowMarkdown,
 	workflowPresentation,
 } from '../src/presentation.ts';
 
@@ -104,4 +107,64 @@ test('sends a declared trigger even after a refresh drops the one picked earlier
 	assert.equal(runTrigger(triggers, 'push'), 'manual');
 	assert.equal(runTrigger('hidden', 'push'), undefined);
 	assert.equal(runTrigger('typed', '  push '), 'push');
+});
+
+test('names the apps a workflow calls once each, in order', () => {
+	assert.deepEqual(
+		appNames([
+			'slackbot.sendMessage',
+			'linear.listIssues',
+			'slackbot.addReaction',
+			'acme_crm.getLead',
+		]),
+		['Acme crm', 'Linear', 'Slack'],
+	);
+});
+
+test('formats a saved date as month and day', () => {
+	assert.equal(formatDate('2026-10-21T11:33:44.153Z', 'UTC'), 'Oct 21');
+});
+
+test('summarizes what a workflow runs on, the apps it uses and its last run', () => {
+	const active = { ...draft, deployedVersion: 4, activation: 'active' as const };
+	const markdown = workflowMarkdown(active, {
+		triggers: [
+			{ key: 'weekday-mornings', type: 'schedule' },
+			{ key: 'post-now', type: 'manual' },
+		],
+		integrations: ['slackbot.sendMessage', 'linear.listIssues'],
+		runs: [
+			{ runId: 'old', workflowId: 'workflow-1', version: '4', status: 'failed', startedAt: 1000 },
+			{
+				runId: 'new',
+				workflowId: 'workflow-1',
+				version: '4',
+				status: 'succeeded',
+				startedAt: 5000,
+				endedAt: 9100,
+			},
+		],
+	});
+	const [title, facts, ...rest] = markdown.split('\n\n');
+	assert.equal(title, '# Summarize');
+	assert.deepEqual(rest, []);
+	const lines = facts.split('\n');
+	assert.equal(lines[0], '- **Runs on** weekday-mornings \\(schedule\\) · post-now \\(manual\\)');
+	assert.equal(lines[1], '- **Uses** Linear, Slack');
+	assert.match(lines[2], /^- \*\*Last run\*\* Succeeded · .+ · 4\.1s$/);
+});
+
+test('explains a status that stops the workflow from running', () => {
+	const paused = { ...draft, deployedVersion: 4, activation: 'paused' as const };
+	assert.equal(
+		workflowMarkdown(paused, { runs: [] }),
+		'# Summarize\n\nWorkflow triggers are paused.\n\n- **Last run** No runs yet',
+	);
+});
+
+test('says when the last run could not be read instead of claiming there are none', () => {
+	assert.equal(
+		workflowMarkdown(draft, { runsFailed: true }),
+		'# Summarize\n\nThis workflow is not turned on.\n\n- **Last run** Could not be read',
+	);
 });

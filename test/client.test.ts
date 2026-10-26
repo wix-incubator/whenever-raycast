@@ -139,6 +139,23 @@ test('reads whether the saved source uses input and which triggers it declares',
 	assert.deepEqual(details.triggers, [{ key: 'manual', type: 'manual' }]);
 });
 
+test('reads when the saved version was saved and which integrations it calls', async (t) => {
+	const { client } = await service(t, () => ({
+		result: {
+			workflow,
+			source: {
+				latestVersion: 3,
+				deployedVersion: 2,
+				savedAt: '2026-10-21T11:33:44.153Z',
+				requiredIntegrationIds: ['slackbot.sendMessage'],
+			},
+		},
+	}));
+	const details = await client.workflow('workflow-1');
+	assert.equal(details.savedAt, '2026-10-21T11:33:44.153Z');
+	assert.deepEqual(details.integrations, ['slackbot.sendMessage']);
+});
+
 test('leaves input and triggers unknown when the server does not report them', async (t) => {
 	const { client } = await service(t, () => ({
 		result: { workflow, source: { latestVersion: 3, deployedVersion: 2 } },

@@ -10,7 +10,8 @@ Search your Whenever workflows, review input, run saved versions, and inspect re
 - **Whenever Account** connects through browser sign-in or signs out.
 - **Open Whenever** opens the web app.
 
-Statuses, run labels, colors, and the run timeline follow the Whenever web app.
+Statuses, run labels, colors, and timeline steps follow the Whenever web app.
+Timeline rows show step durations and short clock times; hover a row for its exact time.
 Pin workflows in Whenever; Raycast shows the same pins.
 Run details show the run status, failure messages, a step timeline, and available output.
 Copy or paste output, or open an HTTP/HTTPS link returned as a string.

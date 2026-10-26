@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import type { Workflow } from '../src/api.ts';
 import {
 	formatClock,
+	formatTime,
 	formatDuration,
 	formatTimestamp,
 	runDescription,
@@ -71,6 +72,7 @@ test('formats durations and times as the web app does', () => {
 	assert.deepEqual([584, 2865, 125000].map(formatDuration), ['584ms', '2.9s', '2m 5s']);
 	assert.equal(formatTimestamp(Date.UTC(2026, 9, 23, 12, 10), 'UTC'), 'Oct 23, 12:10 UTC');
 	assert.equal(formatClock(Date.UTC(2026, 9, 23, 12, 10, 44, 48), 'UTC'), '12:10:44.048 UTC');
+	assert.equal(formatTime(Date.UTC(2026, 9, 23, 12, 10, 44, 48), 'UTC'), '12:10:44');
 });
 
 test('asks only for the run input and trigger the saved source uses', () => {

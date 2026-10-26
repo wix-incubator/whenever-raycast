@@ -1,4 +1,5 @@
 import type { Run, Trigger, Workflow } from './api.ts';
+import { md } from './format.ts';
 
 export type Tone = 'success' | 'warning' | 'error' | 'accent' | 'neutral';
 export type Presentation = { label: string; tone: Tone; description?: string };
@@ -151,4 +152,98 @@ export function runTrigger(trigger: RunFields['trigger'], picked: string): strin
 	if (trigger === 'hidden') return undefined;
 	if (trigger === 'typed') return picked.trim() || undefined;
 	return trigger.some((choice) => choice.key === picked) ? picked : trigger[0]?.key;
+}
+
+const APP_NAMES: Record<string, string> = {
+	ai: 'AI',
+	airtable: 'Airtable',
+	asana: 'Asana',
+	calendly: 'Calendly',
+	clickup: 'ClickUp',
+	confluence: 'Confluence',
+	discord: 'Discord',
+	dropbox: 'Dropbox',
+	figma: 'Figma',
+	github: 'GitHub',
+	gitlab: 'GitLab',
+	gmail: 'Gmail',
+	googlecalendar: 'Google Calendar',
+	googledocs: 'Google Docs',
+	googledrive: 'Google Drive',
+	googlesheets: 'Google Sheets',
+	http: 'HTTP',
+	hubspot: 'HubSpot',
+	intercom: 'Intercom',
+	jira: 'Jira',
+	linear: 'Linear',
+	mailchimp: 'Mailchimp',
+	mcp: 'MCP',
+	notion: 'Notion',
+	outlook: 'Outlook',
+	postgres: 'Postgres',
+	salesforce: 'Salesforce',
+	shopify: 'Shopify',
+	slack: 'Slack',
+	slackbot: 'Slack',
+	stripe: 'Stripe',
+	stripe_app: 'Stripe',
+	telegram: 'Telegram',
+	todoist: 'Todoist',
+	trello: 'Trello',
+	typeform: 'Typeform',
+	whatsapp: 'WhatsApp',
+	zendesk: 'Zendesk',
+	zoom: 'Zoom',
+};
+const appName = (provider: string) =>
+	APP_NAMES[provider] ?? provider.charAt(0).toUpperCase() + provider.slice(1).replaceAll('_', ' ');
+export function appNames(integrations: string[]) {
+	const names = integrations.map((id) => appName(id.split('.')[0] ?? id));
+	return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+}
+export function formatDate(iso: string, timeZone?: string) {
+	return new Intl.DateTimeFormat('en-US', {
+		month: 'short',
+		day: 'numeric',
+		...(timeZone === undefined ? {} : { timeZone }),
+	}).format(new Date(iso));
+}
+export type WorkflowFacts = {
+	triggers?: Trigger[];
+	integrations?: string[];
+	runs?: Run[];
+	runsFailed?: boolean;
+};
+export function workflowMarkdown(workflow: Workflow, facts: WorkflowFacts) {
+	const status = workflowPresentation(workflow);
+	const lines: string[] = [];
+	if (facts.triggers !== undefined)
+		lines.push(
+			`- **Runs on** ${facts.triggers.length === 0 ? 'No declared triggers' : facts.triggers.map((t) => md(startedTriggerLabel(t.type, t.key))).join(' · ')}`,
+		);
+	const apps = appNames(facts.integrations ?? []);
+	if (apps.length > 0) lines.push(`- **Uses** ${apps.map(md).join(', ')}`);
+	const last = [...(facts.runs ?? [])].sort((a, b) => b.startedAt - a.startedAt)[0];
+	if (facts.runsFailed) lines.push('- **Last run** Could not be read');
+	else if (facts.runs !== undefined)
+		lines.push(
+			`- **Last run** ${
+				last === undefined
+					? 'No runs yet'
+					: [
+							runPresentation(last).label,
+							formatTimestamp(last.startedAt),
+							...(last.endedAt === undefined
+								? []
+								: [formatDuration(last.endedAt - last.startedAt)]),
+						].join(' · ')
+			}`,
+		);
+	return [
+		`# ${md(workflow.name)}`,
+		...(workflowStatus(workflow) === 'active'
+			? []
+			: [`${md(status.description ?? status.label)}.`]),
+		...(lines.length > 0 ? [lines.join('\n')] : []),
+	].join('\n\n');
 }

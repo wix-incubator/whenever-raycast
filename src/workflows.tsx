@@ -4,8 +4,12 @@ import type { Activity } from './activity.ts';
 import type { Workflow } from './api.ts';
 import { activityFor, api } from './auth.ts';
 import { ErrorView } from './error-view.tsx';
-import { md } from './format.ts';
-import { workflowPresentation, workflowStatus } from './presentation.ts';
+import {
+	formatDate,
+	workflowMarkdown,
+	workflowPresentation,
+	workflowStatus,
+} from './presentation.ts';
 import { RunDetail } from './run-detail.tsx';
 import { RunForm } from './run-form.tsx';
 import { Runs } from './runs.tsx';
@@ -159,13 +163,21 @@ export function Workflows({ account, primary }: { account: string; primary: Dest
 function WorkflowDetail({ workflow, activity }: { workflow: Workflow; activity: Activity }) {
 	const { push } = useNavigation();
 	const state = useLoad(useCallback(() => api.workflow(workflow.id), [workflow.id]));
+	const runs = useLoad(useCallback(() => api.runs(workflow.id), [workflow.id]));
 	if (state.error) return <ErrorView error={state.error} retry={state.reload} />;
 	const status = workflowPresentation(workflow);
+	const saved = state.data?.version;
+	const savedAt = state.data?.savedAt;
 	return (
 		<Detail
-			isLoading={state.busy}
+			isLoading={state.busy || runs.busy}
 			navigationTitle={workflow.name}
-			markdown={`# ${md(workflow.name)}\n\n${md(status.description ?? status.label)}.\n\nManual execution runs the latest saved version. That version can differ from the published version.`}
+			markdown={workflowMarkdown(workflow, {
+				...(state.data?.triggers === undefined ? {} : { triggers: state.data.triggers }),
+				...(state.data === undefined ? {} : { integrations: state.data.integrations }),
+				...(runs.data === undefined ? {} : { runs: runs.data.runs }),
+				runsFailed: runs.error !== undefined,
+			})}
 			metadata={
 				<Detail.Metadata>
 					<Detail.Metadata.TagList title="Status">
@@ -173,7 +185,11 @@ function WorkflowDetail({ workflow, activity }: { workflow: Workflow; activity: 
 					</Detail.Metadata.TagList>
 					<Detail.Metadata.Label
 						title="Latest saved version"
-						text={state.data?.version === undefined ? 'None' : `v${state.data.version}`}
+						text={
+							saved === undefined
+								? 'None'
+								: `v${saved}${savedAt === undefined ? '' : ` · ${formatDate(savedAt)}`}`
+						}
 					/>
 					<Detail.Metadata.Label
 						title="Published version"

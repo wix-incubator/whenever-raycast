@@ -3,6 +3,7 @@ import { humanize } from './format.ts';
 import {
 	NEVER_STARTED,
 	formatClock,
+	formatTime,
 	formatDuration,
 	runPresentation,
 	runStatusPresentation,
@@ -52,7 +53,13 @@ export function runStatus({ run, complete }: Observation, uncertain: boolean): P
 	return runPresentation(run);
 }
 
-export type TimelineItem = { key: string; title: string; description: string; tone: Tone };
+export type TimelineItem = {
+	key: string;
+	title: string;
+	description: string;
+	tooltip?: string;
+	tone: Tone;
+};
 const LIFECYCLE: Partial<Record<string, Run['status']>> = {
 	run_started: 'running',
 	run_succeeded: 'succeeded',
@@ -61,6 +68,8 @@ const LIFECYCLE: Partial<Record<string, Run['status']>> = {
 	run_cancelled: 'cancelled',
 };
 const STEP_TONE = { running: 'warning', completed: 'success', failed: 'error' } as const;
+const STEP_LABEL = { running: 'Running', completed: 'Completed', failed: 'Failed' } as const;
+const LOG_LABEL = { debug: 'Debug', info: 'Info', warn: 'Warning', error: 'Error' } as const;
 const STEP_RESULT: Partial<Record<string, keyof typeof STEP_TONE>> = {
 	step_completed: 'completed',
 	step_failed: 'failed',
@@ -74,16 +83,22 @@ type Step = {
 	durationMs?: number;
 	failure?: string;
 };
-const clock = (ts: number | undefined) => (ts === undefined ? [] : [formatClock(ts)]);
+const clock = (ts: number | undefined) => (ts === undefined ? [] : [formatTime(ts)]);
+const exact = (ts: number | undefined, prefix = '') =>
+	ts === undefined ? {} : { tooltip: `${prefix}${formatClock(ts)}` };
 const stepRow = (step: Step): TimelineItem => ({
 	key: `step-${step.seq}`,
 	title: step.name,
 	description: [
-		step.failure === undefined ? step.status : step.status === 'running' ? 'Retrying' : 'Failed',
+		step.failure === undefined
+			? STEP_LABEL[step.status]
+			: step.status === 'running'
+				? 'Retrying'
+				: 'Failed',
 		...(step.durationMs === undefined ? [] : [formatDuration(step.durationMs)]),
-		...clock(step.ts),
 		...(step.failure === undefined ? [] : [step.failure]),
 	].join(' · '),
+	...exact(step.ts, 'Started '),
 	tone: STEP_TONE[step.status],
 });
 
@@ -119,9 +134,10 @@ export function timeline(events: RunEvent[]): TimelineItem[] {
 				const row: TimelineItem = {
 					key: `log-${event.seq}`,
 					title: event.message ?? 'Log',
-					description: ['log', ...(event.level ? [event.level] : []), ...clock(event.ts)].join(
+					description: [event.level ? LOG_LABEL[event.level] : 'Log', ...clock(event.ts)].join(
 						' · ',
 					),
+					...exact(event.ts),
 					tone: 'neutral',
 				};
 				rows.push(() => row);
@@ -151,10 +167,10 @@ export function timeline(events: RunEvent[]): TimelineItem[] {
 						...(status === 'running' && event.triggerType !== undefined
 							? [startedTriggerLabel(event.triggerType, event.triggerKey)]
 							: []),
-						...clock(event.ts),
-						...elapsed,
+						...(elapsed.length > 0 ? elapsed : clock(event.ts)),
 						...(event.message === undefined ? [] : [event.message]),
 					].join(' · '),
+					...exact(event.ts),
 					tone: presentation.tone,
 				};
 				rows.push(() => row);

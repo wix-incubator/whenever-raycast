@@ -118,6 +118,15 @@ export function formatTimestamp(ms: number, timeZone?: string) {
 		...(timeZone === undefined ? {} : { timeZone }),
 	}).format(ms);
 }
+export function formatTime(ms: number, timeZone?: string) {
+	return new Intl.DateTimeFormat('en-US', {
+		hour: '2-digit',
+		minute: '2-digit',
+		second: '2-digit',
+		hourCycle: 'h23',
+		...(timeZone === undefined ? {} : { timeZone }),
+	}).format(ms);
+}
 export function formatClock(ms: number, timeZone?: string) {
 	return new Intl.DateTimeFormat('en-US', {
 		hour: '2-digit',

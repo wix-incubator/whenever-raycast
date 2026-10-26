@@ -138,7 +138,7 @@ export function RunDetail({
 					<List.Item
 						key={row.key}
 						title={row.title}
-						subtitle={row.description}
+						subtitle={{ value: row.description, tooltip: row.tooltip ?? null }}
 						icon={statusIcon({ label: row.title, tone: row.tone })}
 						actions={<ActionPanel>{actions}</ActionPanel>}
 					/>

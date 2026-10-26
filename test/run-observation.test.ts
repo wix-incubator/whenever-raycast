@@ -86,9 +86,19 @@ test('shows one timeline row per step with its final state, like the web app', (
 			['Succeeded', 'success'],
 		],
 	);
-	assert.match(rows[0].description, /^slack-app-mention \(webhook\) · /);
-	assert.match(rows[1].description, /^completed · 584ms · /);
-	assert.match(rows[2].description, / · 2\.9s total$/);
+	assert.match(rows[0].description, /^slack-app-mention \(webhook\) · \d{2}:\d{2}:\d{2}$/);
+	assert.equal(rows[1].description, 'Completed · 584ms');
+	assert.match(rows[1].tooltip ?? '', /^Started \d{2}:\d{2}:\d{2}\.000 /);
+	assert.equal(rows[2].description, '2.9s total');
+});
+
+test('shows a log with its level and a short clock time, keeping the exact time on hover', () => {
+	const [row] = timeline([
+		{ runId: 'run-1', seq: 1, ts: 980, type: 'log', level: 'info', message: 'Found 14 issues' },
+	]);
+	assert.equal(row.title, 'Found 14 issues');
+	assert.match(row.description, /^Info · \d{2}:\d{2}:\d{2}$/);
+	assert.match(row.tooltip ?? '', /^\d{2}:\d{2}:\d{2}\.980 /);
 });
 
 test('a failed step carries its failure, and a failure before start reads as did not start', () => {
@@ -109,5 +119,5 @@ test('a failed step carries its failure, and a failure before start reads as did
 		},
 	]);
 	assert.equal(step[0].tone, 'error');
-	assert.match(step[0].description, /^Failed · 10ms · .* · Permission denied$/);
+	assert.equal(step[0].description, 'Failed · 10ms · Permission denied');
 });

@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { test, type TestContext } from 'node:test';
-import { WheneverClient, LaunchUncertain, parseInput, outputText, resultUrl } from '../src/api.ts';
+import {
+	WheneverClient,
+	LaunchUncertain,
+	parseInput,
+	outputText,
+	resultUrl,
+} from '../extension/src/api.ts';
 
 type RpcRequest = {
 	id: number;

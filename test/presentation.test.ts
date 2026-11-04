@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { Workflow } from '../src/api.ts';
-import { md } from '../src/format.ts';
+import type { Workflow } from '../extension/src/api.ts';
+import { md } from '../extension/src/format.ts';
 import {
 	appNames,
 	formatClock,
@@ -14,7 +14,7 @@ import {
 	runTrigger,
 	workflowMarkdown,
 	workflowPresentation,
-} from '../src/presentation.ts';
+} from '../extension/src/presentation.ts';
 
 const draft: Workflow = {
 	id: 'workflow-1',

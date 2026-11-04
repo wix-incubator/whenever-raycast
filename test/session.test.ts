@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Session } from '../src/session.ts';
+import { Session } from '../extension/src/session.ts';
 
 type TokenStore = ConstructorParameters<typeof Session>[0];
 type StoredTokens = Awaited<ReturnType<TokenStore['getTokens']>>;

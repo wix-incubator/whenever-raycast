@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Activity, launchRun } from '../src/activity.ts';
-import { LaunchUncertain, type Start } from '../src/api.ts';
+import { Activity, launchRun } from '../extension/src/activity.ts';
+import { LaunchUncertain, type Start } from '../extension/src/api.ts';
 function storage() {
 	const values = new Map<string, string>();
 	return {

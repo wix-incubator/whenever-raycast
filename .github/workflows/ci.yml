@@ -17,9 +17,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version-file: .nvmrc
+          node-version-file: extension/.nvmrc
           cache: npm
+          cache-dependency-path: extension/package-lock.json
       - name: Audit dependencies with npq
+        working-directory: extension
         env:
           MARSHALL_DISABLE_PROVENANCE: '1'
           GITHUB_TOKEN: ${{ github.token }}
@@ -29,11 +31,17 @@ jobs:
           audit_status=$?
           set -e
           cat "$RUNNER_TEMP/npq-audit.json"
-          node scripts/check-npq-audit.ts "$RUNNER_TEMP/npq-audit.json" "$audit_status"
+          node ../scripts/check-npq-audit.ts "$RUNNER_TEMP/npq-audit.json" "$audit_status"
           npm install --package-lock-only --ignore-scripts
           git diff --exit-code -- package.json package-lock.json
       - run: npm ci --ignore-scripts
+        working-directory: extension
       - run: npm test
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run lint
+        working-directory: extension
+      - run: npm run typecheck
+        working-directory: extension
       - run: npm run build
+        working-directory: extension

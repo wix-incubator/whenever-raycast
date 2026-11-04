@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { RunPage } from '../src/api.ts';
-import { observe, runStatus, timeline, unobserved } from '../src/run-observation.ts';
+import type { RunPage } from '../extension/src/api.ts';
+import { observe, runStatus, timeline, unobserved } from '../extension/src/run-observation.ts';
 
 function page(overrides: Partial<RunPage> = {}): RunPage {
 	return {
